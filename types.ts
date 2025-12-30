@@ -47,11 +47,82 @@ export interface CustomThemeConfig {
     muted: string;
 }
 
+// --- NEW: Voice DNA (Immutable constraints for a voice model) ---
+export interface VoiceDNA {
+    baselinePace: number; // 0.8 - 1.2
+    minWarmth: number;
+    maxWarmth: number;
+    imperfectionTolerance: 'low' | 'high'; // Can this voice handle stutters?
+}
+
+// --- NEW: Trait Locking Support ---
+export type VoiceTrait = 'pace' | 'warmth' | 'firmness' | 'brevity';
+
+// --- NEW: User Voice Memory (Learned Preferences) ---
+export interface UserVoiceMemory {
+    // Delivery Preferences (The "What")
+    paceBias: number;           // +/- 0.0 to 0.5 (Learned offset from base)
+    warmthBias: number;         // +/- 0 to 5
+    firmnessBias: number;       // +/- 0 to 5
+    pauseTolerance: 'low' | 'neutral' | 'high';
+    imperfectionPreference: 'low' | 'neutral' | 'high';
+    
+    // Learning Signals (The "Why")
+    sessionCount: number;
+    avgSessionLength: number; // seconds
+    interruptionRate: number; // interruptions per minute (moving average)
+    
+    // Metadata
+    lastStableTimestamp: number;
+    lockedTraits: VoiceTrait[]; // Array of locked traits
+}
+
+export interface WorkspaceVoiceMemory {
+    id: string;
+    name: string;
+    description: string;
+    // Workspaces define defaults, but usually don't have "bias" in the same way, 
+    // they act as a baseline layer. For simplicity, we reuse the memory structure 
+    // but treat it as an override layer.
+    defaults: Partial<UserVoiceMemory>;
+    lockedTraits: VoiceTrait[]; // Traits forced by the workspace (Admin control)
+}
+
+// --- NEW: Voice Preset (Portable/Shareable Config) ---
+export interface VoicePreset {
+    id: string;
+    name: string;
+    description: string;
+    author: string;
+    tags: string[];
+    // The specific settings this preset applies
+    settings: Partial<VoiceProfile>; 
+    createdAt: Date;
+}
+
+// --- NEW: Marketplace Profile (Sellable Asset) ---
+export interface MarketplaceProfile {
+    id: string;
+    name: string;
+    description: string;
+    voiceName: VoiceName;
+    dna: VoiceDNA;
+    price: number; // 0 for free
+    author: string;
+    rating: number;
+    downloads: number;
+    tags: string[];
+    previewAudioUrl?: string; // Mock url
+    isOwned?: boolean;
+    defaultConfig: Partial<VoiceProfile>;
+}
+
 // ENHANCED: Voice Profile with Behavioral Traits
 export interface VoiceProfile {
   id: string;
   name: string;
   voiceName: VoiceName;
+  dna?: VoiceDNA; // Optional reference to DNA constraints
   
   // Vocal Characteristics
   pace: number; // 0.8 to 1.2
@@ -66,9 +137,7 @@ export interface VoiceProfile {
   emotionalDrift: boolean; 
   pauseDensity: number; // 0-10
   
-  // --- NEW: Advanced Realism Controls ---
-  
-  // Conversational Authenticity
+  // Advanced Realism Controls
   microHesitation: 'off' | 'low' | 'natural';
   selfCorrection: boolean;
   sentenceCompletionVariability: boolean;
@@ -93,10 +162,12 @@ export interface MemoryLayer {
   session: string[]; // Facts from this session
   user: { // Long-term preferences
     name: string;
-    pacePreference: string;
-    tonePreference: string;
+    pacePreference: string; // Deprecated in favor of voiceMemory but kept for compat
+    tonePreference: string; // Deprecated in favor of voiceMemory but kept for compat
   };
+  voiceMemory: UserVoiceMemory; // Persistent voice preferences (NEW)
   workspace: string[]; // Shared domain knowledge
+  activeWorkspaceId?: string; // ID of currently active workspace context
 }
 
 // --- LEARNING & PODCAST ---

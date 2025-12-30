@@ -25,6 +25,15 @@ interface GlobalSettingsProps {
 
 const THEMES: AppTheme[] = ['nexus', 'obsidian', 'aether', 'vertex', 'crimson', 'midnight', 'cyber', 'aurora', 'solaris', 'royale', 'terminal'];
 
+const MEMORY_PRESETS = [
+    "Strict Professionalism: No slang, precise terminology.",
+    "EL5 Mode: Explain complex topics simply.",
+    "Socratic Tutor: Answer questions with guiding questions.",
+    "Code Reviewer: Focus on security and performance.",
+    "Creative Partner: Be unconstrained and divergent.",
+    "Direct & Concise: Bullet points preferred."
+];
+
 export const GlobalSettings: React.FC<GlobalSettingsProps> = ({
     isOpen, onClose,
     currentTheme, onSetTheme, customColors, onUpdateCustomColor,
@@ -37,13 +46,14 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({
     if (!isOpen) return null;
 
     // --- MEMORY HANDLERS ---
-    const handleAddMemory = (category: 'session' | 'workspace') => {
-        if (!newItem.trim()) return;
+    const handleAddMemory = (category: 'session' | 'workspace', item?: string) => {
+        const textToAdd = item || newItem;
+        if (!textToAdd.trim()) return;
         onUpdateMemory({
             ...memory,
-            [category]: [...memory[category], newItem.trim()]
+            [category]: [...memory[category], textToAdd.trim()]
         });
-        setNewItem('');
+        if (!item) setNewItem('');
     };
 
     const handleRemoveMemory = (category: 'session' | 'workspace', index: number) => {
@@ -339,9 +349,26 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({
                                 </div>
                             </div>
 
-                            {/* Workspace Memory */}
+                            {/* Workspace Memory with Presets */}
                             <div className="glass-panel p-6 rounded-xl border border-skin-border">
                                 <h3 className="text-sm font-bold text-skin-text mb-4 border-b border-skin-border pb-2">Workspace Knowledge</h3>
+                                
+                                {/* Quick Inject Presets */}
+                                <div className="mb-4">
+                                    <label className="block text-[10px] font-bold text-skin-muted uppercase tracking-wider mb-2">Quick Inject</label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {MEMORY_PRESETS.map((preset, idx) => (
+                                            <button
+                                                key={idx}
+                                                onClick={() => handleAddMemory('workspace', preset)}
+                                                className="px-2 py-1 bg-skin-surface border border-skin-border rounded text-[10px] text-skin-muted hover:text-skin-text hover:border-skin-accent transition-all"
+                                            >
+                                                + {preset.split(':')[0]}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2 mb-4 max-h-40 overflow-y-auto custom-scrollbar">
                                     {memory.workspace.map((item, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-black/20 p-2 rounded text-xs text-skin-text group">
@@ -358,7 +385,7 @@ export const GlobalSettings: React.FC<GlobalSettingsProps> = ({
                                     ))}
                                 </div>
                                 <div className="p-3 bg-skin-accent-dim/10 rounded-lg text-xs text-skin-muted border border-skin-border border-dashed text-center">
-                                    Workspace memory is shared across sessions. Use the "Add" input above to inject facts into the current context, then they persist here.
+                                    Workspace memory is shared across sessions. Use the presets above or add manually to persist facts.
                                 </div>
                             </div>
 

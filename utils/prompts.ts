@@ -1,5 +1,5 @@
 
-import { VoiceProfile, MemoryLayer } from '../types';
+import { VoiceProfile, MemoryLayer, UserVoiceMemory } from '../types';
 
 // --- NATIVE AUDIO HUMANIZATION PROMPTS ---
 
@@ -22,7 +22,6 @@ Use short "listener tokens" sparingly ("mm-hm", "yeah") only when it improves re
 Keep spoken chunks short (1-3 sentences) then check in implicitly by pausing or intonation.
 `;
 
-// UPDATED PATCH: Do Not Speak Tokens
 export const PROSODY_CONTROLS_PROMPT = `
 SYSTEM / PATCH
 You are a native-audio streaming voice agent. 
@@ -59,24 +58,54 @@ const mapScale = (val: number, low: string, mid: string, high: string) => {
     return high;
 };
 
+// HELPER: Generate Plain Language Transparency Statement
+export const getMemoryTransparencyStatement = (memory: UserVoiceMemory): string => {
+    const parts = [];
+    
+    // Pace
+    if (memory.paceBias > 0.1) parts.push("You tend to prefer a brisk, concise pace.");
+    else if (memory.paceBias < -0.1) parts.push("You seem to prefer a relaxed, thoughtful pace.");
+    
+    // Warmth
+    if (memory.warmthBias > 2) parts.push("You respond well to high warmth and empathy.");
+    else if (memory.warmthBias < -2) parts.push("You prefer a cooler, professional, and objective tone.");
+    
+    // Firmness
+    if (memory.firmnessBias > 2) parts.push("You prefer directness and confidence.");
+    
+    if (parts.length === 0) return "We are currently learning your conversational preferences.";
+    return parts.join(" ");
+};
+
 // ENHANCED: Dynamic Director Notes based on telemetry and profile
 export const getDirectorsNotes = (profile: VoiceProfile, memory?: MemoryLayer, driftMetrics?: any) => {
     
     // Calculate effective firmness based on drift (if enabled)
     let effectiveFirmness = profile.firmness;
     if (profile.emotionalDrift && driftMetrics) {
-        // e.g., if user interrupts often, increase firmness
         if (driftMetrics.interruptionCount > 3) effectiveFirmness += 2;
     }
 
-    const memoryContext = memory ? `
-MEMORY CONTEXT:
+    // MEMORY INTEGRATION
+    let memoryContext = '';
+    if (memory && memory.voiceMemory) {
+        const vm = memory.voiceMemory;
+        const transparency = getMemoryTransparencyStatement(vm);
+        
+        memoryContext = `
+MEMORY CONTEXT (LEARNED PREFERENCES):
 User Name: ${memory.user.name || 'Unknown'}
 Known Facts: ${memory.session.join('; ')}
-Preferences: ${memory.user.pacePreference}, ${memory.user.tonePreference}
-` : '';
 
-    // --- BEHAVIORAL LOGIC GENERATION ---
+VOICE MEMORY (BEHAVIORAL BIAS):
+- Pace Bias: ${vm.paceBias.toFixed(2)} (Positive = Faster, Negative = Slower)
+- Warmth Bias: ${vm.warmthBias.toFixed(2)}
+- Firmness Bias: ${vm.firmnessBias.toFixed(2)}
+- Summary: "${transparency}"
+
+INSTRUCTION: Apply these memory biases to your delivery style subtly. Do not explicitly mention them.
+`;
+    }
 
     const conversationalAuthenticity = `
     CONVERSATIONAL AUTHENTICITY:

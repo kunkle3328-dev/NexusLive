@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { VoiceProfile, VoiceName } from '../types';
+import { VoiceProfile, VoiceName, UserVoiceMemory, VoiceTrait, WorkspaceVoiceMemory } from '../types';
 
 interface VoiceSettingsProps {
     isOpen: boolean;
@@ -11,26 +11,25 @@ interface VoiceSettingsProps {
     onUpdateProfile: (id: string, updates: Partial<VoiceProfile>) => void;
     userName: string;
     onUpdateUserName: (name: string) => void;
+    memory: UserVoiceMemory;
+    transparencyStatement: string;
+    onToggleLock: (trait: VoiceTrait) => void;
+    activeWorkspace: WorkspaceVoiceMemory | undefined;
+    availableWorkspaces: WorkspaceVoiceMemory[];
+    onSetWorkspace: (id: string | null) => void;
+    onWipeMemory: () => void;
 }
 
-// Reusable Tooltip Component - Touch Friendly & Clipping Fixed
-const Tooltip: React.FC<{ title: string; content: string }> = ({ title, content }) => {
+// --- ADVANCED TOOLTIP COMPONENT ---
+const Tooltip: React.FC<{ title: string; content: string; technical?: string }> = ({ title, content, technical }) => {
     const [isVisible, setIsVisible] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
 
-    // Close on click outside or touch outside
     useEffect(() => {
         const handleClickOutside = (event: Event) => {
-            // Check if click/touch is inside the tooltip container (button)
-            if (tooltipRef.current && tooltipRef.current.contains(event.target as Node)) {
-                return;
-            }
-            // Check if click is inside the tooltip content (for the fixed elements which might be outside the ref in DOM tree)
+            if (tooltipRef.current && tooltipRef.current.contains(event.target as Node)) return;
             const target = event.target as HTMLElement;
-            if (target.closest('.tooltip-content')) {
-                return;
-            }
-
+            if (target.closest('.tooltip-trigger')) return;
             setIsVisible(false);
         };
 
@@ -45,56 +44,48 @@ const Tooltip: React.FC<{ title: string; content: string }> = ({ title, content 
     }, [isVisible]);
     
     return (
-        <div 
-            className="relative inline-flex items-center ml-2"
-            ref={tooltipRef}
-        >
+        <div className="relative inline-flex items-center ml-2" ref={tooltipRef}>
             <button
                 type="button"
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setIsVisible(!isVisible);
-                }}
-                className={`w-4 h-4 rounded-full border border-skin-border text-[10px] flex items-center justify-center transition-colors hover:border-skin-accent hover:text-skin-accent active:bg-skin-accent active:text-skin-base ${isVisible ? 'border-skin-accent text-skin-accent bg-skin-accent/10' : 'text-skin-muted'}`}
+                onClick={(e) => { e.stopPropagation(); setIsVisible(!isVisible); }}
+                className={`tooltip-trigger w-4 h-4 rounded-full border flex items-center justify-center transition-all duration-300 ${isVisible ? 'border-skin-accent text-skin-accent bg-skin-accent/10 shadow-[0_0_10px_rgba(6,182,212,0.3)]' : 'border-skin-muted/50 text-skin-muted hover:border-skin-text hover:text-skin-text'}`}
                 aria-label="Info"
             >
-                ?
+                <span className="text-[9px] font-mono">i</span>
             </button>
             {isVisible && (
                 <>
-                    {/* MOBILE: Fixed Overlay (Toast Style) - Prevents clipping and off-screen issues */}
-                    <div className="md:hidden fixed left-4 right-4 bottom-8 z-[200] animate-in slide-in-from-bottom-5 duration-200 tooltip-content">
-                        <div className="glass-panel p-4 rounded-xl border border-skin-border shadow-[0_0_50px_rgba(0,0,0,0.5)] bg-black/95 backdrop-blur-xl">
-                            <div className="flex justify-between items-start mb-2">
-                                <h5 className="text-sm font-bold text-skin-accent flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459-2.066A1.75 1.75 0 009.253 9H9z" clipRule="evenodd" />
-                                    </svg>
+                    <div className="md:hidden fixed left-4 right-4 bottom-8 z-[200] animate-in slide-in-from-bottom-5 duration-200">
+                        <div className="bg-[#050505]/95 backdrop-blur-xl p-5 rounded-2xl border border-skin-border shadow-[0_0_50px_rgba(0,0,0,0.8)] ring-1 ring-white/5">
+                            <div className="flex justify-between items-start mb-3">
+                                <h5 className="text-sm font-bold text-skin-text tracking-wide flex items-center gap-2">
+                                    <span className="w-1 h-4 bg-skin-accent rounded-full"></span>
                                     {title}
                                 </h5>
-                                <button onClick={() => setIsVisible(false)} className="text-skin-muted p-2 -mr-2 -mt-2 hover:text-white">
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
+                                <button onClick={() => setIsVisible(false)} className="text-skin-muted p-1 hover:text-white">✕</button>
                             </div>
-                            <p className="text-xs text-skin-text leading-relaxed opacity-90">{content}</p>
+                            <p className="text-xs text-skin-text/80 leading-relaxed font-light mb-3">{content}</p>
+                            {technical && (
+                                <div className="pt-3 border-t border-white/5">
+                                    <span className="text-[10px] text-skin-accent font-mono uppercase tracking-wider block mb-1">Config Impact</span>
+                                    <p className="text-[10px] text-skin-muted font-mono">{technical}</p>
+                                </div>
+                            )}
                         </div>
                     </div>
-
-                    {/* DESKTOP: Traditional Popover (Enhanced z-index) */}
-                    <div className="hidden md:block absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-72 z-[200] animate-in fade-in zoom-in-95 duration-150 origin-bottom tooltip-content">
-                         <div className="glass-panel p-4 rounded-xl border border-skin-border shadow-2xl bg-black/95 backdrop-blur-xl">
-                             <div className="flex justify-between items-start mb-2">
-                                 <h5 className="text-sm font-bold text-skin-accent">{title}</h5>
-                                 <button onClick={() => setIsVisible(false)} className="text-skin-muted hover:text-white">
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                                        <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
-                                    </svg>
-                                 </button>
+                    <div className="hidden md:block absolute bottom-full left-1/2 -translate-x-1/2 mb-4 w-80 z-[200] animate-in fade-in zoom-in-95 duration-200 origin-bottom">
+                         <div className="bg-[#09090b]/95 backdrop-blur-xl p-5 rounded-xl border border-skin-border shadow-[0_20px_60px_-10px_rgba(0,0,0,0.8)] ring-1 ring-white/5">
+                             <div className="flex justify-between items-start mb-3">
+                                 <h5 className="text-sm font-bold text-skin-text tracking-wide">{title}</h5>
                              </div>
-                             <p className="text-xs text-skin-text leading-relaxed opacity-90">{content}</p>
-                             <div className="absolute bottom-[-6px] left-1/2 -translate-x-1/2 w-3 h-3 bg-black/95 border-r border-b border-skin-border transform rotate-45"></div>
+                             <p className="text-xs text-skin-text/80 leading-relaxed font-light mb-3">{content}</p>
+                             {technical && (
+                                 <div className="p-2 bg-white/5 rounded-lg border border-white/5">
+                                     <span className="text-[9px] text-skin-accent font-mono uppercase tracking-wider block mb-1">Signal Processing</span>
+                                     <p className="text-[10px] text-skin-muted font-mono leading-tight">{technical}</p>
+                                 </div>
+                             )}
+                             <div className="absolute bottom-[-6px] left-1/2 -translate-x-1/2 w-3 h-3 bg-[#09090b] border-r border-b border-skin-border transform rotate-45"></div>
                          </div>
                     </div>
                 </>
@@ -103,7 +94,18 @@ const Tooltip: React.FC<{ title: string; content: string }> = ({ title, content 
     );
 };
 
-// Reusable Slider Component
+// --- CONTROL COMPONENTS ---
+
+const SectionHeader: React.FC<{ title: string; subtitle?: string; color?: string }> = ({ title, subtitle, color = "bg-skin-accent" }) => (
+    <div className="mb-6 pb-2 border-b border-white/5">
+        <h4 className="text-sm font-bold text-skin-text flex items-center gap-2">
+            <span className={`w-1.5 h-1.5 ${color} rounded-full shadow-glow`}></span>
+            {title}
+        </h4>
+        {subtitle && <p className="text-[10px] text-skin-muted mt-1 ml-3.5 opacity-70">{subtitle}</p>}
+    </div>
+);
+
 const SliderControl: React.FC<{
     label: string;
     value: number;
@@ -112,24 +114,40 @@ const SliderControl: React.FC<{
     step: number;
     displayValue: string | number;
     onChange: (val: number) => void;
-    tooltipTitle: string;
-    tooltipContent: string;
+    tooltip: { title: string; content: string; technical?: string };
     colorClass?: string;
-}> = ({ label, value, min, max, step, displayValue, onChange, tooltipTitle, tooltipContent, colorClass = "from-skin-secondary to-skin-accent" }) => (
-    <div className="py-2">
+    isLocked?: boolean;
+    onToggleLock?: () => void;
+}> = ({ label, value, min, max, step, displayValue, onChange, tooltip, colorClass = "from-skin-secondary to-skin-accent", isLocked, onToggleLock }) => (
+    <div className="py-3 group">
         <div className="flex justify-between items-end mb-3">
-            <div className="flex items-center">
-                <span className="text-xs font-bold text-skin-muted uppercase tracking-wider">{label}</span>
-                <Tooltip title={tooltipTitle} content={tooltipContent} />
+            <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-skin-muted uppercase tracking-widest group-hover:text-skin-text transition-colors">{label}</span>
+                <Tooltip {...tooltip} />
             </div>
-            <span className="font-mono text-xs font-bold text-skin-accent bg-skin-surface px-2 py-0.5 rounded border border-skin-border min-w-[3rem] text-center">
-                {displayValue}
-            </span>
+            <div className="flex items-center gap-3">
+                {onToggleLock && (
+                    <button 
+                        onClick={onToggleLock}
+                        className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${isLocked ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-transparent border-transparent text-skin-muted hover:text-skin-text hover:bg-white/5'}`}
+                        title={isLocked ? "Learning Disabled" : "Learning Enabled"}
+                    >
+                        {isLocked ? (
+                            <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg> LOCK</>
+                        ) : (
+                            <><svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> AUTO</>
+                        )}
+                    </button>
+                )}
+                <span className="font-mono text-[10px] font-bold text-skin-accent bg-skin-surface/80 px-2 py-1 rounded border border-skin-border min-w-[3.5rem] text-center">
+                    {displayValue}
+                </span>
+            </div>
         </div>
-        <div className="relative h-6 flex items-center group cursor-pointer touch-none">
-            <div className="absolute w-full h-1.5 bg-skin-surface rounded-full overflow-hidden border border-skin-border group-hover:border-skin-muted transition-colors">
+        <div className={`relative h-2 flex items-center cursor-pointer touch-none select-none ${isLocked ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
+            <div className="absolute w-full h-1 bg-skin-surface rounded-full overflow-hidden border border-white/5">
                 <div 
-                    className={`h-full bg-gradient-to-r ${colorClass} transition-all duration-100 ease-out`}
+                    className={`h-full bg-gradient-to-r ${colorClass} opacity-80 group-hover:opacity-100 transition-all duration-200`}
                     style={{ width: `${((value - min) / (max - min)) * 100}%` }}
                 ></div>
             </div>
@@ -138,35 +156,35 @@ const SliderControl: React.FC<{
                 value={value}
                 onChange={(e) => onChange(parseFloat(e.target.value))}
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                disabled={isLocked}
             />
             <div 
-                className="absolute w-5 h-5 bg-skin-text rounded-full shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 border-skin-base transition-all duration-75 pointer-events-none transform -translate-x-1/2 group-active:scale-110 group-hover:border-skin-accent"
+                className="absolute w-4 h-4 bg-[#f8fafc] rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] border-2 border-skin-base transition-transform duration-100 pointer-events-none transform -translate-x-1/2 scale-75 group-hover:scale-100 group-active:scale-125"
                 style={{ left: `${((value - min) / (max - min)) * 100}%` }}
             ></div>
         </div>
+        {isLocked && <div className="text-[9px] text-red-400/70 mt-1.5 flex items-center gap-1 font-mono"><span className="w-1 h-1 bg-red-400 rounded-full"></span> PERSISTENT OVERRIDE ACTIVE</div>}
     </div>
 );
 
-// Toggle Group Component
 const ToggleGroup: React.FC<{
     label: string;
     options: string[];
     value: string;
     onChange: (val: string) => void;
-    tooltipTitle: string;
-    tooltipContent: string;
-}> = ({ label, options, value, onChange, tooltipTitle, tooltipContent }) => (
-    <div className="pt-2">
+    tooltip: { title: string; content: string; technical?: string };
+}> = ({ label, options, value, onChange, tooltip }) => (
+    <div className="py-2">
         <div className="flex items-center mb-3">
-            <span className="text-xs font-bold text-skin-muted uppercase tracking-wider">{label}</span>
-            <Tooltip title={tooltipTitle} content={tooltipContent} />
+            <span className="text-[10px] font-bold text-skin-muted uppercase tracking-widest">{label}</span>
+            <Tooltip {...tooltip} />
         </div>
-        <div className="flex bg-skin-base rounded-lg p-1 border border-skin-border h-9">
+        <div className="flex bg-[#050505] rounded-lg p-1 border border-white/10 h-8">
             {options.map((opt) => (
                 <button
                     key={opt}
                     onClick={() => onChange(opt)}
-                    className={`flex-1 text-[10px] uppercase font-bold rounded transition-all ${value === opt ? 'bg-skin-surface border border-skin-border text-skin-text shadow-sm' : 'text-skin-muted hover:text-skin-text'}`}
+                    className={`flex-1 text-[9px] uppercase font-bold rounded-md transition-all ${value === opt ? 'bg-skin-surface border border-skin-border text-skin-text shadow-sm' : 'text-skin-muted hover:text-skin-text hover:bg-white/5'}`}
                 >
                     {opt}
                 </button>
@@ -175,31 +193,33 @@ const ToggleGroup: React.FC<{
     </div>
 );
 
-// Boolean Switch Component
 const SwitchControl: React.FC<{
     label: string;
     value: boolean;
     onChange: (val: boolean) => void;
-    tooltipTitle: string;
-    tooltipContent: string;
-}> = ({ label, value, onChange, tooltipTitle, tooltipContent }) => (
-    <div className="flex items-center justify-between py-2">
+    tooltip: { title: string; content: string; technical?: string };
+    warning?: boolean;
+}> = ({ label, value, onChange, tooltip, warning }) => (
+    <div className="flex items-center justify-between py-2 group">
         <div className="flex items-center">
-            <span className="text-xs font-bold text-skin-muted uppercase tracking-wider">{label}</span>
-            <Tooltip title={tooltipTitle} content={tooltipContent} />
+            <span className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${value ? 'text-skin-text' : 'text-skin-muted'}`}>{label}</span>
+            <Tooltip {...tooltip} />
         </div>
         <button 
             onClick={() => onChange(!value)}
-            className={`relative w-10 h-5 rounded-full transition-colors duration-200 ${value ? 'bg-skin-accent' : 'bg-skin-surface border border-skin-border'}`}
+            className={`relative w-9 h-5 rounded-full transition-colors duration-200 border ${value ? (warning ? 'bg-orange-500/20 border-orange-500' : 'bg-skin-accent/20 border-skin-accent') : 'bg-black border-white/10'}`}
         >
-            <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${value ? 'translate-x-5' : ''}`}></div>
+            <div className={`absolute top-0.5 left-0.5 w-3.5 h-3.5 rounded-full shadow-sm transition-transform duration-200 ${value ? (warning ? 'translate-x-4 bg-orange-400' : 'translate-x-4 bg-skin-accent') : 'bg-skin-muted'}`}></div>
         </button>
     </div>
 );
 
 export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ 
-    isOpen, onClose, profiles, activeProfileId, onSelectProfile, onUpdateProfile, userName, onUpdateUserName 
+    isOpen, onClose, profiles, activeProfileId, onSelectProfile, onUpdateProfile, 
+    memory, transparencyStatement, onToggleLock, activeWorkspace, availableWorkspaces, onSetWorkspace, onWipeMemory
 }) => {
+    const [activeTab, setActiveTab] = useState<'tuner' | 'memory'>('tuner');
+
     if (!isOpen) return null;
 
     const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
@@ -209,56 +229,69 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
             <div className="glass-panel w-full h-[100dvh] md:h-[90vh] md:max-w-6xl md:rounded-2xl shadow-2xl flex flex-col border border-skin-border relative overflow-hidden animate-in slide-in-from-bottom-10 md:zoom-in-95 duration-300">
                 
                 {/* Header */}
-                <div className="px-4 py-4 md:px-6 border-b border-skin-border bg-skin-surface/95 backdrop-blur-xl flex justify-between items-center shrink-0 z-20">
+                <div className="px-4 py-4 md:px-6 border-b border-skin-border bg-[#09090b]/95 backdrop-blur-xl flex justify-between items-center shrink-0 z-20">
                     <h3 className="text-lg md:text-xl font-bold text-skin-text tracking-tight flex items-center gap-3">
-                        <div className="p-2 bg-skin-accent/10 rounded-lg border border-skin-accent/20">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-skin-accent">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+                        <div className="p-2 bg-skin-accent/5 rounded-lg border border-skin-accent/20 text-skin-accent">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
                             </svg>
                         </div>
-                        Voice Tuning Studio
+                        Nexus Signal Processor
                     </h3>
-                    <button 
-                        onClick={onClose} 
-                        className="p-2 -mr-2 text-skin-muted hover:text-white hover:bg-white/10 rounded-full transition-all"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-6 h-6">
+                    
+                    <div className="flex bg-[#050505] p-1 rounded-lg border border-white/10">
+                        <button 
+                            onClick={() => setActiveTab('tuner')}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'tuner' ? 'bg-skin-surface text-skin-text shadow-sm border border-skin-border' : 'text-skin-muted hover:text-skin-text'}`}
+                        >
+                            Voice DNA
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('memory')}
+                            className={`px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-widest transition-all ${activeTab === 'memory' ? 'bg-skin-surface text-skin-text shadow-sm border border-skin-border' : 'text-skin-muted hover:text-skin-text'}`}
+                        >
+                            Neural Memory
+                        </button>
+                    </div>
+
+                    <button onClick={onClose} className="p-2 -mr-2 text-skin-muted hover:text-white hover:bg-white/5 rounded-full transition-all">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative">
+                <div className="flex-1 overflow-hidden flex flex-col md:flex-row relative bg-[#020203]">
                     
-                    {/* Sidebar: Profiles (Responsive) */}
-                    <div className="w-full md:w-72 border-b md:border-b-0 md:border-r border-skin-border bg-skin-surface/30 flex-shrink-0 flex flex-col z-10">
-                        <div className="hidden md:block px-6 py-4 border-b border-skin-border/50">
-                            <h4 className="text-[10px] font-bold text-skin-muted uppercase tracking-widest">Active Persona</h4>
+                    {/* Sidebar: Profiles */}
+                    <div className="w-full md:w-64 border-b md:border-b-0 md:border-r border-white/5 bg-[#050505] flex-shrink-0 flex flex-col z-10">
+                        <div className="hidden md:block px-6 py-4 border-b border-white/5">
+                            <h4 className="text-[10px] font-bold text-skin-muted uppercase tracking-widest">Base Persona</h4>
                         </div>
                         
-                        <div className="p-4 md:p-0 overflow-x-auto md:overflow-y-auto custom-scrollbar flex md:flex-col gap-3 md:gap-0 h-auto md:h-full">
+                        <div className="p-4 md:p-0 overflow-x-auto md:overflow-y-auto custom-scrollbar flex md:flex-col gap-2 md:gap-0 h-auto md:h-full">
                             {profiles.map(p => (
                                 <button
                                     key={p.id}
                                     onClick={() => onSelectProfile(p.id)}
                                     className={`
                                         shrink-0 relative group overflow-hidden transition-all duration-300
-                                        rounded-xl md:rounded-none border md:border-0 md:border-b md:border-skin-border/30 text-left
-                                        w-40 md:w-full p-3 md:p-5
+                                        rounded-lg md:rounded-none border md:border-0 md:border-b md:border-white/5 text-left
+                                        w-40 md:w-full p-3 md:p-4
                                         ${activeProfileId === p.id 
-                                            ? 'bg-skin-accent-dim/10 border-skin-accent md:border-b-skin-border/30 ring-1 md:ring-0 ring-skin-accent shadow-inner' 
-                                            : 'bg-skin-surface md:bg-transparent border-skin-border md:border-transparent hover:bg-white/5'
+                                            ? 'bg-white/5 border-skin-accent md:border-b-white/5' 
+                                            : 'bg-transparent border-white/10 md:border-transparent hover:bg-white/5'
                                         }
                                     `}
                                 >
                                     {activeProfileId === p.id && (
-                                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-skin-accent hidden md:block"></div>
+                                        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-skin-accent hidden md:block shadow-[0_0_10px_#22d3ee]"></div>
                                     )}
-                                    <div className={`font-bold text-sm mb-1 truncate pr-2 ${activeProfileId === p.id ? 'text-skin-accent' : 'text-skin-muted group-hover:text-skin-text'}`}>
+                                    <div className={`font-bold text-xs mb-1 truncate pr-2 ${activeProfileId === p.id ? 'text-skin-accent' : 'text-skin-muted group-hover:text-skin-text'}`}>
                                         {p.name}
                                     </div>
                                     <div className="flex items-center justify-between">
-                                         <div className="text-[10px] uppercase tracking-wider opacity-70 text-skin-muted">{p.voiceName}</div>
+                                         <div className="text-[9px] uppercase tracking-wider opacity-60 text-skin-muted font-mono">{p.voiceName}</div>
                                          {activeProfileId === p.id && (
                                              <div className="w-1.5 h-1.5 rounded-full bg-skin-accent animate-pulse shadow-glow"></div>
                                          )}
@@ -268,230 +301,235 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                         </div>
                     </div>
 
-                    {/* Main: Controls */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar bg-skin-base/50 p-5 md:p-8 pb-20 md:pb-8">
+                    {/* Main Content */}
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-6 md:p-10 pb-20 md:pb-10">
 
-                        {/* User Identity Block */}
-                        <div className="mb-10 bg-gradient-to-br from-skin-surface to-transparent border border-skin-border rounded-xl p-6">
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className="w-1.5 h-4 bg-white rounded-full shadow-glow"></span>
-                                <h4 className="text-sm font-bold text-skin-text">User Identity</h4>
-                            </div>
-                            <div className="grid grid-cols-1 gap-4">
-                                <div>
-                                    <label className="block text-[10px] font-bold text-skin-muted uppercase tracking-wider mb-2">
-                                        Your Name (For personalization)
-                                    </label>
-                                    <input 
-                                        type="text" 
-                                        value={userName}
-                                        onChange={(e) => onUpdateUserName(e.target.value)}
-                                        className="w-full glass-input rounded-lg px-4 py-3 text-skin-text focus:ring-1 focus:ring-skin-accent outline-none font-medium text-sm"
-                                        placeholder="How should I address you?"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-10">
-                            
-                            {/* Column 1 */}
-                            <div className="space-y-10">
-                                
-                                {/* Section 1: Human Realism (NEW) */}
-                                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                    <h4 className="text-sm font-bold text-skin-text mb-6 flex items-center gap-2 border-b border-skin-border pb-3">
-                                        <span className="w-1.5 h-4 bg-skin-accent rounded-full shadow-glow"></span>
-                                        Human Realism
-                                    </h4>
-                                    <div className="space-y-4">
-                                        <ToggleGroup 
-                                            label="Micro-Hesitations"
-                                            options={['off', 'low', 'natural']}
-                                            value={activeProfile.microHesitation}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { microHesitation: v as any })}
-                                            tooltipTitle="Micro-Hesitations"
-                                            tooltipContent="Controls small pauses and '...' moments where the AI seems to be searching for a word. 'Natural' adds authentic cognitive pauses."
-                                        />
-                                        <SwitchControl 
-                                            label="Self-Correction"
-                                            value={activeProfile.selfCorrection}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { selfCorrection: v })}
-                                            tooltipTitle="Self-Correction"
-                                            tooltipContent="Allows the model to restart a sentence or reframe a thought mid-stream ('Actually, let me put it this way...')."
-                                        />
-                                        <SwitchControl 
-                                            label="False Start Allowance"
-                                            value={activeProfile.falseStartAllowance}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { falseStartAllowance: v })}
-                                            tooltipTitle="False Start Allowance"
-                                            tooltipContent="Permits conversational messiness where a sentence might be abandoned for a better one, mimicking human thought flow."
-                                        />
-                                        <SwitchControl 
-                                            label="Varied Sentence Completion"
-                                            value={activeProfile.sentenceCompletionVariability}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { sentenceCompletionVariability: v })}
-                                            tooltipTitle="Sentence Variability"
-                                            tooltipContent="Allows sentences to occasionally trail off or end softly, rather than always having a perfect 'landing'."
-                                        />
+                        {activeTab === 'memory' && (
+                            <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                {/* Workspace Context Selector */}
+                                <div className="p-6 bg-[#09090b] rounded-xl border border-white/10 shadow-xl">
+                                    <h4 className="text-xs font-bold text-skin-muted uppercase tracking-widest mb-4">Context Scope</h4>
+                                    <div className="flex flex-col gap-3">
+                                        <label className={`flex items-center p-4 rounded-lg border cursor-pointer transition-all ${!activeWorkspace ? 'bg-skin-accent/10 border-skin-accent' : 'bg-black border-white/10 hover:border-white/20'}`}>
+                                            <input 
+                                                type="radio" name="workspace" 
+                                                checked={!activeWorkspace}
+                                                onChange={() => onSetWorkspace(null)}
+                                                className="mr-4 accent-skin-accent"
+                                            />
+                                            <div>
+                                                <div className={`font-bold text-sm ${!activeWorkspace ? 'text-skin-accent' : 'text-white'}`}>Personal Memory</div>
+                                                <div className="text-xs text-skin-muted mt-0.5">Adapts privately to your individual conversation history.</div>
+                                            </div>
+                                        </label>
+                                        {availableWorkspaces.map(ws => (
+                                            <label key={ws.id} className={`flex items-center p-4 rounded-lg border cursor-pointer transition-all ${activeWorkspace?.id === ws.id ? 'bg-skin-accent/10 border-skin-accent' : 'bg-black border-white/10 hover:border-white/20'}`}>
+                                                <input 
+                                                    type="radio" name="workspace" 
+                                                    checked={activeWorkspace?.id === ws.id}
+                                                    onChange={() => onSetWorkspace(ws.id)}
+                                                    className="mr-4 accent-skin-accent"
+                                                />
+                                                <div>
+                                                    <div className={`font-bold text-sm ${activeWorkspace?.id === ws.id ? 'text-skin-accent' : 'text-white'}`}>{ws.name}</div>
+                                                    <div className="text-xs text-skin-muted mt-0.5">{ws.description}</div>
+                                                </div>
+                                            </label>
+                                        ))}
                                     </div>
                                 </div>
 
-                                {/* Section 2: Cognitive Timing (NEW) */}
-                                <div className="animate-in fade-in slide-in-from-bottom-3 duration-500 delay-100">
-                                    <h4 className="text-sm font-bold text-skin-text mb-6 flex items-center gap-2 border-b border-skin-border pb-3">
-                                        <span className="w-1.5 h-4 bg-skin-secondary rounded-full shadow-glow"></span>
-                                        Cognitive Timing
-                                    </h4>
-                                    <div className="space-y-4">
-                                        <ToggleGroup 
-                                            label="Thought-Before-Speech Delay"
-                                            options={['off', 'short', 'variable']}
-                                            value={activeProfile.thoughtDelay}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { thoughtDelay: v as any })}
-                                            tooltipTitle="Thought Delay"
-                                            tooltipContent="Simulates 'thinking time' before answering complex questions. 'Variable' scales delay based on question difficulty."
-                                        />
-                                        <SwitchControl 
-                                            label="Mid-Response Adaptation"
-                                            value={activeProfile.midResponseAdaptation}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { midResponseAdaptation: v })}
-                                            tooltipTitle="Mid-Response Adaptation"
-                                            tooltipContent="Allows tone or pacing to shift in the middle of an answer, as if the AI is realizing a new nuance while speaking."
-                                        />
+                                {/* Transparency Summary */}
+                                <div className="p-6 bg-gradient-to-br from-indigo-950/30 to-black rounded-xl border border-indigo-500/20 relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 p-3 opacity-10">
+                                        <svg className="w-16 h-16 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>
                                     </div>
-                                </div>
-
-                                {/* Section 3: Imperfection Engine */}
-                                <div className="animate-in fade-in slide-in-from-bottom-3 duration-500 delay-150">
-                                    <h4 className="text-sm font-bold text-skin-text mb-6 flex items-center gap-2 border-b border-skin-border pb-3">
-                                        <span className="w-1.5 h-4 bg-purple-500 rounded-full shadow-glow"></span>
-                                        Imperfection Engine
+                                    <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                        <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse"></div>
+                                        Cognitive Model State
                                     </h4>
-                                    <div className="space-y-4">
-                                        <ToggleGroup 
-                                            label="Natural Fillers"
-                                            options={['off', 'rare', 'contextual']}
-                                            value={activeProfile.naturalFillers}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { naturalFillers: v as any })}
-                                            tooltipTitle="Natural Fillers"
-                                            tooltipContent="Injects 'um', 'uh', or 'you know' only when conversationally justified. 'Contextual' is the most advanced setting."
-                                        />
-                                        <ToggleGroup 
-                                            label="Soft Laughter"
-                                            options={['off', 'rare']}
-                                            value={activeProfile.laughter}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { laughter: v as any })}
-                                            tooltipTitle="Laughter"
-                                            tooltipContent="Permits occasional light chuckles in reaction to humor. 'Rare' ensures it doesn't become annoying."
-                                        />
+                                    <p className="text-sm text-skin-text leading-relaxed font-light font-mono">
+                                        "{transparencyStatement}"
+                                    </p>
+                                    <div className="mt-4 pt-4 border-t border-indigo-500/10 flex justify-between items-center">
+                                        <span className="text-[10px] text-indigo-400/60 font-mono">
+                                            LAST UPDATED: {new Date(memory.lastStableTimestamp).toLocaleTimeString()}
+                                        </span>
+                                        <button 
+                                            onClick={onWipeMemory}
+                                            className="text-[10px] font-bold text-red-400 hover:text-red-300 border border-red-500/20 hover:border-red-500/50 bg-red-500/5 px-3 py-1.5 rounded transition-all uppercase tracking-wider"
+                                        >
+                                            Reset Profile
+                                        </button>
                                     </div>
                                 </div>
                             </div>
+                        )}
 
-                            {/* Column 2 */}
-                            <div className="space-y-10">
-                                
-                                {/* Section 4: Acoustic Texture */}
-                                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
-                                    <h4 className="text-sm font-bold text-skin-text mb-6 flex items-center gap-2 border-b border-skin-border pb-3">
-                                        <span className="w-1.5 h-4 bg-orange-500 rounded-full shadow-glow"></span>
-                                        Acoustic Texture
-                                    </h4>
-                                    <div className="space-y-6">
+                        {activeTab === 'tuner' && (
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-12">
+                                {/* Column 1: Signal Carrier (Core Voice) */}
+                                <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                                    <SectionHeader title="Signal Carrier" subtitle="Fundamental vocal characteristics" color="bg-orange-500" />
+                                    
+                                    <div className="space-y-5">
                                         <SliderControl 
                                             label="Pace"
-                                            value={activeProfile.pace} min={0.8} max={1.5} step={0.05} displayValue={`${activeProfile.pace}x`}
+                                            value={activeProfile.pace} min={0.8} max={1.5} step={0.05} displayValue={`${activeProfile.pace.toFixed(2)}x`}
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { pace: v })}
-                                            tooltipTitle="Pace"
-                                            tooltipContent="Baseline speaking rate."
-                                            colorClass="from-orange-400 to-red-500"
+                                            tooltip={{
+                                                title: "Speech Rate",
+                                                content: "Controls the baseline playback speed. Lower values (0.8-0.9x) create a thoughtful, educational delivery. Higher values (1.1-1.3x) mimic high-energy podcast hosts.",
+                                                technical: "Modulates the duration of phonemes without altering pitch."
+                                            }}
+                                            colorClass="from-orange-500/50 to-red-500"
+                                            isLocked={memory.lockedTraits.includes('pace')}
+                                            onToggleLock={() => onToggleLock('pace')}
                                         />
-                                        <SliderControl 
-                                            label="Pause Density"
-                                            value={activeProfile.pauseDensity} min={1} max={10} step={1} displayValue={`${activeProfile.pauseDensity}/10`}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { pauseDensity: v })}
-                                            tooltipTitle="Pause Density"
-                                            tooltipContent="Frequency of silences. High density feels thoughtful; low feels rehearsed."
-                                            colorClass="from-purple-400 to-pink-500"
-                                        />
-                                        <ToggleGroup 
-                                            label="Breath Placement"
-                                            options={['off', 'subtle']}
-                                            value={activeProfile.breathPlacement}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { breathPlacement: v as any })}
-                                            tooltipTitle="Breath Placement"
-                                            tooltipContent="Adds subtle intakes of breath before long phrases for physiological realism."
-                                        />
-                                        <SwitchControl 
-                                            label="Prosodic Drift"
-                                            value={activeProfile.prosodicDrift}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { prosodicDrift: v })}
-                                            tooltipTitle="Prosodic Drift"
-                                            tooltipContent="Prevents monotone delivery by allowing pitch to drift naturally over longer responses."
-                                        />
-                                        <SwitchControl 
-                                            label="Emphasis Decay"
-                                            value={activeProfile.emphasisDecay}
-                                            onChange={(v) => onUpdateProfile(activeProfile.id, { emphasisDecay: v })}
-                                            tooltipTitle="Emphasis Decay"
-                                            tooltipContent="Prevents the 'salesman voice' effect where every key word is over-emphasized. Reduces stress on repeated terms."
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Section 5: Personality Matrix */}
-                                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 delay-300">
-                                    <h4 className="text-sm font-bold text-skin-text mb-6 flex items-center gap-2 border-b border-skin-border pb-3">
-                                        <span className="w-1.5 h-4 bg-red-500 rounded-full shadow-glow"></span>
-                                        Personality Matrix
-                                    </h4>
-                                    <div className="space-y-6">
                                         <SliderControl 
                                             label="Warmth"
-                                            value={activeProfile.warmth} min={1} max={10} step={1} displayValue={`${activeProfile.warmth}/10`}
+                                            value={activeProfile.warmth} min={1} max={10} step={1} displayValue={`${activeProfile.warmth.toFixed(0)}/10`}
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { warmth: v })}
-                                            tooltipTitle="Warmth"
-                                            tooltipContent="Tonal softness and empathy."
-                                            colorClass="from-pink-400 to-rose-500"
+                                            tooltip={{
+                                                title: "Tonal Temperature",
+                                                content: "Adjusts empathy and softness. High warmth increases pitch variability and breathiness for connection. Low warmth flattens affect for professional objectivity.",
+                                                technical: "Affects formant shifting and pitch variance amplitude."
+                                            }}
+                                            colorClass="from-rose-500/50 to-pink-500"
+                                            isLocked={memory.lockedTraits.includes('warmth')}
+                                            onToggleLock={() => onToggleLock('warmth')}
+                                        />
+                                        <SliderControl 
+                                            label="Energy"
+                                            value={activeProfile.energy} min={1} max={10} step={1} displayValue={`${activeProfile.energy.toFixed(0)}/10`}
+                                            onChange={(v) => onUpdateProfile(activeProfile.id, { energy: v })}
+                                            tooltip={{
+                                                title: "Dynamic Intensity",
+                                                content: "Sets the excitement level. High energy leads to louder, punchier delivery. Low energy is calm and reserved.",
+                                                technical: "Controls volume compression and attack/decay envelopes."
+                                            }}
+                                            colorClass="from-yellow-500/50 to-orange-500"
                                         />
                                         <SliderControl 
                                             label="Firmness"
-                                            value={activeProfile.firmness} min={1} max={10} step={1} displayValue={`${activeProfile.firmness}/10`}
+                                            value={activeProfile.firmness} min={1} max={10} step={1} displayValue={`${activeProfile.firmness.toFixed(0)}/10`}
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { firmness: v })}
-                                            tooltipTitle="Firmness"
-                                            tooltipContent="Authoritative weight and certainty."
-                                            colorClass="from-slate-400 to-slate-200"
+                                            tooltip={{
+                                                title: "Assertiveness",
+                                                content: "Determines confidence level. High firmness reduces hedging and upspeak. Low firmness sounds more collaborative.",
+                                                technical: "Reduces sentence-final pitch rise (upspeak)."
+                                            }}
+                                            colorClass="from-slate-500/50 to-white"
+                                            isLocked={memory.lockedTraits.includes('firmness')}
+                                            onToggleLock={() => onToggleLock('firmness')}
                                         />
-                                        
-                                        {/* Emotional Drift Toggle */}
-                                        <div className="flex items-center justify-between bg-gradient-to-r from-indigo-900/20 to-transparent p-4 rounded-xl border border-skin-border/50 hover:border-skin-accent/30 transition-colors mt-8">
-                                            <div className="flex items-center">
-                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center mr-3 transition-colors ${activeProfile.emotionalDrift ? 'bg-indigo-500 text-white shadow-glow' : 'bg-skin-surface text-skin-muted'}`}>
-                                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.59 14.37a6 6 0 01-5.58 0A6 6 0 0110 8V6a6 6 0 016 0v2a6 6 0 01-1.41 4.37zM14 20H10" />
-                                                    </svg>
-                                                </div>
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-bold text-skin-text uppercase tracking-wider">Emotional Drift</span>
-                                                        <Tooltip title="Emotional Drift" content="Allows tone to evolve dynamically within a session based on user sentiment analysis." />
-                                                    </div>
-                                                    <span className="text-[10px] text-skin-muted">{activeProfile.emotionalDrift ? 'Dynamic Adaptation Active' : 'Consistent Persona Locked'}</span>
-                                                </div>
-                                            </div>
-                                            <button 
-                                                onClick={() => onUpdateProfile(activeProfile.id, { emotionalDrift: !activeProfile.emotionalDrift })}
-                                                className={`relative w-12 h-6 rounded-full transition-all duration-300 ${activeProfile.emotionalDrift ? 'bg-indigo-500 shadow-inner' : 'bg-skin-surface border border-skin-border'}`}
-                                            >
-                                                <div className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform duration-300 shadow-sm ${activeProfile.emotionalDrift ? 'translate-x-6' : ''}`}></div>
-                                            </button>
-                                        </div>
                                     </div>
                                 </div>
 
+                                {/* Column 2: Cognitive & Bio-Acoustics */}
+                                <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
+                                    
+                                    {/* Cognitive Flow */}
+                                    <div className="space-y-6">
+                                        <SectionHeader title="Cognitive Flow" subtitle="Thinking patterns & response shaping" color="bg-indigo-500" />
+                                        
+                                        <div className="space-y-5">
+                                            <SliderControl 
+                                                label="Brevity"
+                                                value={activeProfile.brevity} min={1} max={10} step={1} displayValue={`${activeProfile.brevity.toFixed(0)}/10`}
+                                                onChange={(v) => onUpdateProfile(activeProfile.id, { brevity: v })}
+                                                tooltip={{
+                                                    title: "Conciseness",
+                                                    content: "Higher values force efficient, dense communication. Lower values allow for storytelling and elaboration.",
+                                                    technical: "Adjusts token budget penalty for length."
+                                                }}
+                                                colorClass="from-blue-500/50 to-indigo-500"
+                                                isLocked={memory.lockedTraits.includes('brevity')}
+                                                onToggleLock={() => onToggleLock('brevity')}
+                                            />
+                                            
+                                            <ToggleGroup 
+                                                label="Thought Delay" 
+                                                options={['off', 'short', 'variable']} 
+                                                value={activeProfile.thoughtDelay} 
+                                                onChange={(v) => onUpdateProfile(activeProfile.id, { thoughtDelay: v as any })} 
+                                                tooltip={{
+                                                    title: "Simulated Latency",
+                                                    content: "Inserts a pause before responding to complex queries, mimicking human thought processing.",
+                                                    technical: "Adds randomized pre-response silence (0.5s - 2.0s)."
+                                                }}
+                                            />
+
+                                            <SwitchControl 
+                                                label="Emotional Drift" 
+                                                value={activeProfile.emotionalDrift} 
+                                                onChange={(v) => onUpdateProfile(activeProfile.id, { emotionalDrift: v })} 
+                                                tooltip={{
+                                                    title: "Sentiment Adaptation",
+                                                    content: "Allows voice tone to gradually shift based on the user's detected mood during the session.",
+                                                    technical: "Enables real-time sentiment analysis feedback loop."
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Bio-Acoustics (Human Realism) */}
+                                    <div className="space-y-6">
+                                        <SectionHeader title="Bio-Acoustics" subtitle="NotebookLM-style human imperfections" color="bg-emerald-500" />
+                                        
+                                        <div className="space-y-2">
+                                            <ToggleGroup 
+                                                label="Micro-Hesitations" 
+                                                options={['off', 'low', 'natural']} 
+                                                value={activeProfile.microHesitation} 
+                                                onChange={(v) => onUpdateProfile(activeProfile.id, { microHesitation: v as any })} 
+                                                tooltip={{
+                                                    title: "Disfluency Injection",
+                                                    content: "Adds subtle stutters or pauses mid-sentence to simulate searching for words.",
+                                                    technical: "Probabilistic insertion of silence tokens."
+                                                }}
+                                            />
+                                            
+                                            <ToggleGroup 
+                                                label="Natural Fillers" 
+                                                options={['off', 'rare', 'contextual']} 
+                                                value={activeProfile.naturalFillers} 
+                                                onChange={(v) => onUpdateProfile(activeProfile.id, { naturalFillers: v as any })} 
+                                                tooltip={{
+                                                    title: "Filler Words",
+                                                    content: "Inserts 'um', 'uh', 'you know' to make the speech sound less scripted and more conversational.",
+                                                    technical: "Conversational filler injection model."
+                                                }}
+                                            />
+
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <SwitchControl 
+                                                    label="Self-Correction" 
+                                                    value={activeProfile.selfCorrection} 
+                                                    onChange={(v) => onUpdateProfile(activeProfile.id, { selfCorrection: v })} 
+                                                    tooltip={{
+                                                        title: "Reformulation",
+                                                        content: "Occasionally restarts a sentence to clarify meaning, as humans do.",
+                                                        technical: "Simulates false starts."
+                                                    }}
+                                                />
+                                                <SwitchControl 
+                                                    label="Breath Sounds" 
+                                                    value={activeProfile.breathPlacement === 'subtle'} 
+                                                    onChange={(v) => onUpdateProfile(activeProfile.id, { breathPlacement: v ? 'subtle' : 'off' })} 
+                                                    tooltip={{
+                                                        title: "Inhalation Cues",
+                                                        content: "Adds soft breath sounds before long sentences.",
+                                                        technical: "Inserts low-volume aspiration noise."
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
             </div>
