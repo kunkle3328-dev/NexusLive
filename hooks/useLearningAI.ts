@@ -1,7 +1,7 @@
 
 import { useState, useCallback } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
-import { LearningSource, PodcastScriptLine, PodcastBlueprint, PodcastType, PodcastChapter } from '../types';
+import { LearningSource, PodcastScriptLine, PodcastBlueprint, PodcastType, PodcastChapter, TeachingMap, HostConfig, ExportArtifacts, PublishingMetadata, PodcastEpisode } from '../types';
 import { mergeBase64PCM } from '../utils/audioUtils';
 
 const MODEL_TEXT = 'gemini-3-flash-preview'; 
@@ -27,135 +27,151 @@ export const useLearningAI = () => {
     return text.trim();
   };
 
-  // 1. Generate Blueprint (Teaching Mode)
-  const generateBlueprint = useCallback(async (
-    topic: string,
-    audience: string,
-    sources: LearningSource[]
-  ): Promise<PodcastBlueprint | null> => {
-    setGeneratingCount(c => c + 1);
-    try {
-      const ai = getClient();
-      const sourceContext = sources.map(s => `SOURCE (${s.title}): ${s.content.substring(0, 15000)}...`).join('\n\n');
-      
-      const prompt = `
-        You are an expert instructional designer creating a "Teaching Podcast" blueprint.
-        TOPIC: ${topic}
-        TARGET AUDIENCE: ${audience}
-        
-        SOURCES:
-        ${sourceContext}
-        
-        TASK:
-        Create a structured learning plan.
-        1. Define 3-5 clear Learning Objectives.
-        2. Outline 4-6 Chapters that logically progress from basics to advanced.
-        3. Identify 3-5 "Common Misconceptions" that learners often have about this topic.
-        4. Create 3 "Checkpoint Questions" to facilitate reflection.
-        5. Extract 3-5 key glossary terms.
-        
-        OUTPUT JSON:
-        {
-          "learningObjectives": ["string"],
-          "targetAudience": "${audience}",
-          "teachingStyle": "Socratic",
-          "chapters": [
-            {
-              "title": "string",
-              "objective": "string",
-              "keyPoints": ["string"]
-            }
-          ],
-          "checkpoints": ["string"],
-          "misconceptions": ["string"],
-          "glossary": [
-            { "term": "string", "definition": "string" }
-          ]
-        }
-      `;
-
-      const response = await ai.models.generateContent({
-        model: MODEL_TEXT,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      });
-
-      const parsed = JSON.parse(cleanJson(response.text || '{}'));
-      return parsed.chapters ? parsed : null;
-    } catch (e) {
-      console.error("Blueprint Gen Error:", e);
-      return null;
-    } finally {
-      setGeneratingCount(c => Math.max(0, c - 1));
-    }
-  }, []);
-
-  // 2. Generate Script (Standard or Teaching)
-  const generatePodcastScript = useCallback(async (
-    topic: string,
-    style: string,
-    type: PodcastType,
-    sources: LearningSource[],
-    blueprint?: PodcastBlueprint
-  ): Promise<{ title: string; script: PodcastScriptLine[] } | null> => {
-    setGeneratingCount(c => c + 1);
-    try {
-      const ai = getClient();
-      const sourceContext = sources.map(s => `SOURCE (${s.title}): ${s.content.substring(0, 25000)}...`).join('\n\n');
-      
-      let prompt = '';
-
-      if (type === 'Teaching' && blueprint) {
-         prompt = `
-            You are a "Teaching Podcast" host pair: Host (Energetic, Curious) and Expert (Calm, Authoritative).
+  // --- 1. INTELLIGENCE LAYER: TEACHING MAP ---
+  const generateTeachingMap = useCallback(async (
+      topic: string,
+      audience: string,
+      sources: LearningSource[]
+  ): Promise<TeachingMap | null> => {
+      setGeneratingCount(c => c + 1);
+      try {
+          const ai = getClient();
+          const sourceContext = sources.map(s => `[${s.title}]: ${s.content.substring(0, 15000)}...`).join('\n\n');
+          
+          const prompt = `
+            You are a Master Instructional Designer.
+            Analyze the provided sources to create a "Teaching Map" for a podcast episode.
             
-            BLUEPRINT:
-            ${JSON.stringify(blueprint)}
+            TOPIC: ${topic}
+            TARGET AUDIENCE: ${audience}
             
             SOURCES:
             ${sourceContext}
             
             TASK:
-            Write a COMPREHENSIVE, WORD-FOR-WORD script.
-            Target Length: 1500-2500 words (approx 10-15 minutes).
+            Break this topic down into 3-5 distinct "Teaching Units" that build upon each other.
+            For EACH unit, you must identify:
+            1. Core Concept (The specific idea to teach)
+            2. Analogy (A relatable comparison)
+            3. Real World Example (Concrete application from sources or general knowledge)
+            4. Checkpoint Question (A rhetorical question to check understanding)
             
-            STRUCTURE & PEDAGOGY:
-            - Iterate through EVERY chapter in the blueprint.
-            - Explicitly address the "Common Misconceptions" defined in the blueprint (remediate them).
-            - Insert "Checkpoints": Have the Host ask the listener a reflective question, pause briefly (narratively), and then the Expert explains the answer.
-            - Use analogies and examples from the sources.
-            
-            Format the output strictly as JSON.
+            Also, suggest "Teaching Beats" (moments to pause and check in with the learner) for each unit.
             
             OUTPUT JSON:
             {
-              "title": "Episode Title",
-              "script": [
-                { "speaker": "Host", "text": "..." },
-                { "speaker": "Expert", "text": "..." }
+              "topic": "${topic}",
+              "targetAudience": "${audience}",
+              "summary": "1 sentence overview",
+              "units": [
+                {
+                  "title": "Unit Title",
+                  "coreConcept": "Definition...",
+                  "analogy": "It's like...",
+                  "realWorldExample": "For example...",
+                  "checkpointQuestion": "So why does this matter?"
+                }
+              ],
+              "beats": [
+                 { "id": "beat_1", "conceptId": "concept_1", "prompt": "Want to review [Concept]?", "suggestedActions": ["Explain Simply", "Quiz Me"] }
               ]
             }
-         `;
-      } else {
-         // Standard Podcast Prompt
+          `;
+
+          const response = await ai.models.generateContent({
+              model: MODEL_TEXT,
+              contents: prompt,
+              config: { responseMimeType: 'application/json' }
+          });
+
+          return JSON.parse(cleanJson(response.text || '{}'));
+      } catch (e) {
+          console.error("Teaching Map Error:", e);
+          return null;
+      } finally {
+          setGeneratingCount(c => Math.max(0, c - 1));
+      }
+  }, []);
+
+  // --- 2. SCRIPT GENERATION (Enhanced with Host Config & Audience) ---
+  const generatePodcastScript = useCallback(async (
+    topic: string,
+    type: PodcastType,
+    sources: LearningSource[],
+    hostConfig: HostConfig,
+    teachingMap?: TeachingMap
+  ): Promise<{ title: string; script: PodcastScriptLine[] } | null> => {
+    setGeneratingCount(c => c + 1);
+    try {
+      const ai = getClient();
+      const sourceContext = sources.map(s => `SOURCE (${s.title}): ${s.content.substring(0, 20000)}...`).join('\n\n');
+      
+      const audienceDirective = hostConfig.audienceMode !== 'off' 
+        ? `AUDIENCE MODE (${hostConfig.audienceMode}): Insert ${hostConfig.audienceMode === 'heavy' ? '5-6' : hostConfig.audienceMode === 'normal' ? '3-4' : '1-2'} "Audience Questions" into the script. 
+           Frame them as "We just got a question from [Name] asking..." or "A listener might be wondering...". 
+           Use diverse, realistic names. Questions should clarify complex points.`
+        : 'No audience Q&A. Stick to the hosts.';
+
+      const directorNotes = `
+        HOST PERSONA SETTINGS:
+        - Role: ${hostConfig.personality}
+        - Pacing: ${hostConfig.pace > 1.05 ? 'Fast-paced, energetic' : hostConfig.pace < 0.95 ? 'Slow, thoughtful, deliberate' : 'Natural conversational'}
+        - Warmth: ${hostConfig.warmth}/10 (${hostConfig.warmth > 7 ? 'Highly empathetic, soft' : 'Professional, objective'})
+        - Imperfections: ${hostConfig.imperfections === 'high' ? 'Frequent (um, uh, you know, self-corrections)' : hostConfig.imperfections === 'low' ? 'Rare, mostly polished' : 'None, scripted perfection'}
+        - Format: ${hostConfig.dualHost ? 'Two Hosts (Host & Expert)' : 'Single Host Monologue'}
+        
+        ${audienceDirective}
+      `;
+
+      let prompt = '';
+
+      if (type === 'Teaching' && teachingMap) {
          prompt = `
-            You are an expert educational podcast producer.
-            TOPIC: ${topic}
-            STYLE: ${style}
+            You are a "Teaching Podcast" producer.
+            
+            ${directorNotes}
+            
+            TEACHING MAP (Follow this structure strictly):
+            ${JSON.stringify(teachingMap)}
             
             SOURCES:
             ${sourceContext}
             
-            Task: Create a deep-dive podcast script between "Host" (Energetic) and "Expert" (Calm).
-            Target Length: 1000-1500 words (approx 7-10 minutes).
-            Cover the topic clearly and engagingly.
+            TASK:
+            Write a word-for-word script.
+            ${hostConfig.dualHost ? 'Speaker 1 (Host) guides the flow. Speaker 2 (Expert) explains the concepts.' : 'Single Host teaching directly to the listener.'}
+            
+            Apply the "Imperfections" setting by adding natural fillers or false starts into the text if requested (e.g. "I mean...", "Wait,").
             
             OUTPUT JSON:
             {
               "title": "Episode Title",
               "script": [
                 { "speaker": "Host", "text": "..." },
-                { "speaker": "Expert", "text": "..." }
+                ${hostConfig.dualHost ? '{ "speaker": "Expert", "text": "..." }' : ''}
+              ]
+            }
+         `;
+      } else {
+         prompt = `
+            You are a Professional Podcast Producer.
+            TOPIC: ${topic}
+            
+            ${directorNotes}
+            
+            SOURCES:
+            ${sourceContext}
+            
+            Task: Create an engaging podcast script.
+            Target Length: 1000-1500 words.
+            Style: ${hostConfig.personality}.
+            
+            OUTPUT JSON:
+            {
+              "title": "Episode Title",
+              "script": [
+                { "speaker": "Host", "text": "..." },
+                ${hostConfig.dualHost ? '{ "speaker": "Expert", "text": "..." }' : ''}
               ]
             }
          `;
@@ -164,16 +180,11 @@ export const useLearningAI = () => {
       const response = await ai.models.generateContent({
         model: MODEL_TEXT,
         contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
-        }
+        config: { responseMimeType: 'application/json' }
       });
 
       const parsed = JSON.parse(cleanJson(response.text || '{}'));
-      const data = parsed.podcast || parsed;
-      
-      if (!data.script || !Array.isArray(data.script)) return null;
-      return data;
+      return parsed.podcast || parsed;
     } catch (e) {
       console.error("Script Gen Error:", e);
       return null;
@@ -182,8 +193,10 @@ export const useLearningAI = () => {
     }
   }, []);
 
+  // --- 3. AUDIO SYNTHESIS (Host Aware) ---
   const synthesizePodcastAudio = useCallback(async (
     script: PodcastScriptLine[],
+    hostConfig: HostConfig,
     onProgress?: (percentage: number) => void
   ): Promise<string | null> => {
     setGeneratingCount(c => c + 1);
@@ -191,8 +204,6 @@ export const useLearningAI = () => {
       if (!script || !script.length) throw new Error("Empty script");
 
       const ai = getClient();
-      
-      // OPTIMIZATION: Use 4000 chars. 8000 was causing timeouts/failures. 4000 is safer.
       const MAX_CHAR_PER_CHUNK = 4000; 
       const chunks: PodcastScriptLine[][] = [];
       let currentChunk: PodcastScriptLine[] = [];
@@ -212,22 +223,20 @@ export const useLearningAI = () => {
 
       const results: string[] = new Array(chunks.length).fill('');
       
+      const primaryVoice = hostConfig.voiceName; 
+      const expertVoice = primaryVoice === 'Fenrir' ? 'Kore' : 'Fenrir'; 
+
       for (let i = 0; i < chunks.length; i++) {
           const chunk = chunks[i];
           const conversationText = chunk.map(line => `${line.speaker}: ${line.text}`).join('\n');
           const prompt = `TTS the following conversation:\n\n${conversationText}`;
 
-          // Rate Limit Cool-down: 10s delay between chunks to be extremely safe
-          if (i > 0) {
-              await new Promise(r => setTimeout(r, 10000));
-          }
+          if (i > 0) await new Promise(r => setTimeout(r, 8000)); 
 
           let retries = 0;
           let success = false;
-          // Increased to 5 retries to handle transient 429s better
-          const MAX_RETRIES = 5;
           
-          while (retries < MAX_RETRIES && !success) { 
+          while (retries < 3 && !success) { 
               try {
                   const response = await ai.models.generateContent({
                       model: MODEL_AUDIO,
@@ -237,8 +246,8 @@ export const useLearningAI = () => {
                           speechConfig: {
                               multiSpeakerVoiceConfig: {
                                   speakerVoiceConfigs: [
-                                      { speaker: 'Host', voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Orus' } } },
-                                      { speaker: 'Expert', voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } } }
+                                      { speaker: 'Host', voiceConfig: { prebuiltVoiceConfig: { voiceName: primaryVoice } } },
+                                      { speaker: 'Expert', voiceConfig: { prebuiltVoiceConfig: { voiceName: expertVoice } } }
                                   ]
                               }
                           }
@@ -253,41 +262,20 @@ export const useLearningAI = () => {
                   }
               } catch (e: any) {
                   retries++;
-                  // Detect Quota errors (429/503/403) or generic "resource exhausted"
-                  const isQuota = e.message?.includes('429') || 
-                                  e.message?.includes('quota') || 
-                                  e.message?.includes('503') || 
-                                  e.message?.includes('resource exhausted');
-                  
-                  console.warn(`Chunk ${i} failed (Attempt ${retries}). Is Quota: ${isQuota}`, e);
-                  
-                  if (isQuota) {
-                      // Aggressive penalty box for quota errors
-                      const waitTime = retries * 10000; // 10s, 20s, 30s...
-                      console.log(`Quota hit. Waiting ${waitTime/1000}s...`);
-                      await new Promise(r => setTimeout(r, waitTime));
-                  } else {
-                      // Standard backoff
-                      await new Promise(r => setTimeout(r, 2000 * retries));
-                  }
+                  console.warn(`Chunk ${i} retry ${retries}`, e);
+                  await new Promise(r => setTimeout(r, 3000 * retries));
               }
           }
 
-          // If a chunk failed completely after all retries
           if (!success) {
-               console.error("Critical: Audio chunk generation failed permanently after max retries.");
+               console.error("Audio chunk failed.");
                return null;
           }
 
-          if (onProgress) {
-              onProgress(Math.round(((i + 1) / chunks.length) * 100));
-          }
+          if (onProgress) onProgress(Math.round(((i + 1) / chunks.length) * 100));
       }
 
-      const validAudioParts = results.filter(r => !!r);
-      if (validAudioParts.length === 0) return null;
-
-      return mergeBase64PCM(validAudioParts);
+      return mergeBase64PCM(results.filter(r => !!r));
 
     } catch (e) {
       console.error("Audio Gen Error:", e);
@@ -335,22 +323,9 @@ export const useLearningAI = () => {
     history: { role: 'user' | 'model', text: string }[]
   ): Promise<string | null> => {
      const ai = getClient();
-     const context = sources.map(s => {
-         let content = s.content;
-         if (!content && s.url) {
-             content = `[URL Reference: ${s.url}]`; 
-         }
-         return `SOURCE: ${s.title}\nCONTENT: ${content.substring(0, 20000)}...`;
-     }).join('\n\n');
+     const context = sources.map(s => `SOURCE: ${s.title}\nCONTENT: ${s.content.substring(0, 20000)}...`).join('\n\n');
 
-     const prompt = `You are a helpful AI Tutor embedded in a Learning Podcast application.
-     Your goal is to answer the user's question about the podcast topic comprehensively.
-     
-     INSTRUCTIONS:
-     1. FIRST, check the provided SOURCES below.
-     2. IF the answer is found in the sources, cite them and answer.
-     3. IF the answer is NOT in the sources, OR if the sources are just URL references/empty, you MUST use the googleSearch tool to find the answer.
-     
+     const prompt = `You are a helpful AI Tutor.
      SOURCES:
      ${context}
      
@@ -359,14 +334,10 @@ export const useLearningAI = () => {
      const response = await ai.models.generateContent({
         model: MODEL_TEXT,
         contents: prompt,
-        config: {
-            tools: [{ googleSearch: {} }] 
-        }
      });
      return response.text || '';
   }, []);
 
-  // NEW: Feature 2 - Generate Chapters based on script/context
   const generateChapters = useCallback(async (
       context: string,
       duration: number
@@ -412,13 +383,99 @@ export const useLearningAI = () => {
       }
   }, []);
 
+  // --- 4. EXPORT & PUBLISHING (NEW) ---
+  const generateStudyMaterials = useCallback(async (
+      episode: PodcastEpisode
+  ): Promise<ExportArtifacts | null> => {
+      setGeneratingCount(c => c + 1);
+      try {
+          const ai = getClient();
+          const scriptText = episode.script.map(l => `${l.speaker}: ${l.text}`).join('\n');
+          
+          const prompt = `
+            You are an educational content creator.
+            Create study materials based on this podcast transcript.
+            
+            TRANSCRIPT:
+            ${scriptText.substring(0, 25000)}
+            
+            TASK 1: Generate Markdown Slides (5-7 slides).
+            TASK 2: Generate a Study Guide summary.
+            
+            OUTPUT JSON:
+            {
+              "slidesMarkdown": "# Title\\n\\n* Bullet 1...",
+              "studyGuideText": "Full text for a PDF study guide including summary, key terms, and 3 quiz questions."
+            }
+          `;
+
+          const response = await ai.models.generateContent({
+              model: MODEL_TEXT,
+              contents: prompt,
+              config: { responseMimeType: 'application/json' }
+          });
+          
+          const parsed = JSON.parse(cleanJson(response.text || '{}'));
+          
+          // Create dummy Blob URL for PDF (Simulated)
+          const pdfBlob = new Blob([parsed.studyGuideText], { type: 'text/plain' });
+          const pdfUrl = URL.createObjectURL(pdfBlob);
+
+          return {
+              slidesMarkdown: parsed.slidesMarkdown,
+              studyPdfUrl: pdfUrl,
+              lastGeneratedAt: new Date()
+          };
+
+      } catch (e) {
+          console.error("Export Gen Error", e);
+          return null;
+      } finally {
+          setGeneratingCount(c => Math.max(0, c - 1));
+      }
+  }, []);
+
+  const generateRSSFeed = useCallback((episode: PodcastEpisode): PublishingMetadata => {
+      // Simulate RSS Generation
+      const rssContent = `
+        <?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0">
+          <channel>
+            <title>${episode.title}</title>
+            <description>${episode.teachingMap?.summary || 'Generated by Nexus Voice'}</description>
+            <item>
+              <title>${episode.title}</title>
+              <description>${episode.topic}</description>
+              <enclosure url="https://nexus-voice.demo/audio/${episode.id}.mp3" type="audio/mpeg"/>
+              <guid>${episode.id}</guid>
+              <pubDate>${new Date().toUTCString()}</pubDate>
+            </item>
+          </channel>
+        </rss>
+      `;
+      const blob = new Blob([rssContent], { type: 'application/rss+xml' });
+      return {
+          rssUrl: URL.createObjectURL(blob),
+          publicPageUrl: `https://nexus.app/listen/${episode.id}`,
+          isPublished: true,
+          feedTitle: episode.title,
+          feedDescription: episode.teachingMap?.summary
+      };
+  }, []);
+
+  // Passthrough
+  const generateBlueprint = useCallback(async () => null, []);
+
   return {
     isGenerating,
-    generateBlueprint,
+    generateTeachingMap,
     generatePodcastScript,
     synthesizePodcastAudio,
     generateCoverImage,
     chatWithSources,
-    generateChapters
+    generateChapters,
+    generateBlueprint,
+    generateStudyMaterials,
+    generateRSSFeed
   };
 };

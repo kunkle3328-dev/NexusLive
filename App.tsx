@@ -3,8 +3,9 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { GoogleGenAI, Modality } from '@google/genai';
 import { useGeminiLive } from './hooks/useGeminiLive';
 import { useVoiceMemory } from './hooks/useVoiceMemory';
+import { useAdminPolicy } from './hooks/useAdminPolicy';
 import { Visualizer } from './components/Visualizer';
-import { ConnectionState, VoiceProfile, VoiceName, AppTheme, VoiceState, MemoryLayer, AdminConfig, CustomThemeConfig } from './types';
+import { ConnectionState, VoiceProfile, VoiceName, AppTheme, VoiceState, MemoryLayer, AdminConfig, CustomThemeConfig, VoiceDNA } from './types';
 import { base64ToFloat32, createAudioBuffer } from './utils/audioUtils';
 import { LearningMode } from './components/learning/LearningMode';
 import { PROMPT_MODULES, getDirectorsNotes } from './utils/prompts';
@@ -15,10 +16,36 @@ import { GlobalSettings } from './components/GlobalSettings';
 
 const API_KEY = process.env.API_KEY as string;
 
-// --- INITIAL DATA ---
+// --- VOICE DNA DEFINITIONS ---
+const DNA_NEUTRAL: VoiceDNA = {
+    paceRange: [0.9, 1.1],
+    warmthRange: [3, 7],
+    energyRange: [4, 6],
+    imperfectionTolerance: 'low',
+    defaultPersonaBias: 'professional'
+};
+
+const DNA_EXPRESSIVE: VoiceDNA = {
+    paceRange: [0.8, 1.4],
+    warmthRange: [6, 10],
+    energyRange: [5, 9],
+    imperfectionTolerance: 'high',
+    defaultPersonaBias: 'coach'
+};
+
+const DNA_AUTHORITATIVE: VoiceDNA = {
+    paceRange: [0.95, 1.15],
+    warmthRange: [1, 5],
+    energyRange: [6, 8],
+    imperfectionTolerance: 'low',
+    defaultPersonaBias: 'executive'
+};
+
+// --- INITIAL DATA WITH DNA ---
 const INITIAL_PROFILES: VoiceProfile[] = [
   {
     id: 'neutral-pro', name: 'Neutral Professional', voiceName: 'Zephyr',
+    dna: DNA_NEUTRAL,
     pace: 1.0, warmth: 5, energy: 5, brevity: 5, pauseDensity: 5,
     formality: 7, firmness: 5, challengeLevel: 3, emotionalDrift: false,
     microHesitation: 'low', selfCorrection: false, sentenceCompletionVariability: false,
@@ -28,6 +55,7 @@ const INITIAL_PROFILES: VoiceProfile[] = [
   },
   {
     id: 'warm-tutor', name: 'Warm Tutor', voiceName: 'Kore',
+    dna: DNA_EXPRESSIVE,
     pace: 0.95, warmth: 9, energy: 5, brevity: 4, pauseDensity: 6,
     formality: 4, firmness: 3, challengeLevel: 2, emotionalDrift: true,
     microHesitation: 'natural', selfCorrection: true, sentenceCompletionVariability: true,
@@ -37,6 +65,7 @@ const INITIAL_PROFILES: VoiceProfile[] = [
   },
   {
     id: 'exec-briefing', name: 'Executive Briefing', voiceName: 'Fenrir',
+    dna: DNA_AUTHORITATIVE,
     pace: 1.1, warmth: 3, energy: 7, brevity: 9, pauseDensity: 3,
     formality: 9, firmness: 8, challengeLevel: 7, emotionalDrift: false,
     microHesitation: 'off', selfCorrection: false, sentenceCompletionVariability: false,
@@ -46,6 +75,7 @@ const INITIAL_PROFILES: VoiceProfile[] = [
   },
   {
     id: 'debate-opponent', name: 'Debate Opponent', voiceName: 'Fenrir',
+    dna: DNA_AUTHORITATIVE,
     pace: 1.05, warmth: 2, energy: 8, brevity: 6, pauseDensity: 4,
     formality: 6, firmness: 9, challengeLevel: 9, emotionalDrift: true,
     microHesitation: 'low', selfCorrection: true, sentenceCompletionVariability: false,
@@ -55,6 +85,7 @@ const INITIAL_PROFILES: VoiceProfile[] = [
   },
   {
     id: 'creative-muse', name: 'Creative Muse', voiceName: 'Puck',
+    dna: DNA_EXPRESSIVE,
     pace: 1.0, warmth: 7, energy: 9, brevity: 3, pauseDensity: 7,
     formality: 2, firmness: 4, challengeLevel: 5, emotionalDrift: true,
     microHesitation: 'natural', selfCorrection: true, sentenceCompletionVariability: true,
@@ -64,6 +95,7 @@ const INITIAL_PROFILES: VoiceProfile[] = [
   },
    {
     id: 'empathetic-coach', name: 'Empathetic Coach', voiceName: 'Aoede',
+    dna: DNA_EXPRESSIVE,
     pace: 0.9, warmth: 10, energy: 4, brevity: 5, pauseDensity: 8,
     formality: 5, firmness: 6, challengeLevel: 4, emotionalDrift: true,
     microHesitation: 'natural', selfCorrection: false, sentenceCompletionVariability: true,
@@ -142,7 +174,8 @@ const App: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // --- 1. MEMORY STATE & HOOKS ---
+  // --- 1. ADMIN POLICY & MEMORY STATE ---
+  const { policy: adminPolicy, updatePolicy: updateAdminPolicy } = useAdminPolicy();
   
   // Local State for Memory Layer (Session, User Identity, Workspace)
   const [sessionContext, setSessionContext] = useState<string[]>([]);
@@ -175,31 +208,38 @@ const App: React.FC = () => {
       activeWorkspaceId: activeWorkspace?.id
   }), [effectiveMemory, activeWorkspace, sessionContext, workspaceContext, userIdentity]);
 
-  // --- 2. EFFECTIVE PROFILE CALCULATION ---
-  // Apply Hierarchical Biases to the Active Profile
+  // --- 2. EFFECTIVE PROFILE CALCULATION (Admin + DNA + Memory) ---
   const activeProfileBase = profiles.find(p => p.id === activeProfileId) || profiles[0];
   
   const effectiveProfile = useMemo(() => {
-      // Start with the user selected preset
+      // 1. Start with the user selected preset
       const p = { ...activeProfileBase };
       
-      // If memory isn't loaded yet, return preset as is (Anti-Blank Guarantee)
-      if (!isMemoryLoaded) return p;
+      // 2. Apply Memory (If enabled by Admin)
+      if (adminPolicy.allowVoiceMemory && isMemoryLoaded) {
+          const m = effectiveMemory;
+          p.pace = p.pace + m.paceBias;
+          p.warmth = p.warmth + m.warmthBias;
+          p.firmness = p.firmness + m.firmnessBias;
+      }
 
-      // Apply Biases (Memory already resolves Hierarchy: Lock > Workspace > User)
-      const m = effectiveMemory;
+      // 3. Clamp to DNA Constraints (CRITICAL)
+      if (p.dna) {
+          p.pace = Math.max(p.dna.paceRange[0], Math.min(p.dna.paceRange[1], p.pace));
+          p.warmth = Math.max(p.dna.warmthRange[0], Math.min(p.dna.warmthRange[1], p.warmth));
+          p.energy = Math.max(p.dna.energyRange[0], Math.min(p.dna.energyRange[1], p.energy));
+      }
 
-      // Pace
-      p.pace = Math.max(0.8, Math.min(1.5, p.pace + m.paceBias));
-      
-      // Warmth
-      p.warmth = Math.max(1, Math.min(10, p.warmth + m.warmthBias));
-      
-      // Firmness
-      p.firmness = Math.max(1, Math.min(10, p.firmness + m.firmnessBias));
+      // 4. Admin Constraints (Enterprise Governance)
+      if (adminPolicy.maxImperfectionLevel === 'low' || adminPolicy.maxImperfectionLevel === 'off') {
+          p.naturalFillers = adminPolicy.maxImperfectionLevel === 'off' ? 'off' : 'rare';
+          p.microHesitation = adminPolicy.maxImperfectionLevel === 'off' ? 'off' : 'low';
+          p.laughter = 'off';
+          p.falseStartAllowance = false;
+      }
 
       return p;
-  }, [activeProfileBase, effectiveMemory, isMemoryLoaded]);
+  }, [activeProfileBase, effectiveMemory, isMemoryLoaded, adminPolicy]);
 
   // Apply Theme Logic
   useEffect(() => { 
@@ -458,6 +498,9 @@ const App: React.FC = () => {
       );
   }
 
+  // Filter available profiles based on Admin Policy
+  const availableProfiles = profiles.filter(p => !adminPolicy.lockedPersonas.includes(p.id));
+
   return (
     <>
       {/* --- MODALS --- */}
@@ -474,16 +517,14 @@ const App: React.FC = () => {
       <VoiceSettings 
         isOpen={isVoiceSettingsOpen}
         onClose={() => setIsVoiceSettingsOpen(false)}
-        profiles={profiles}
+        profiles={availableProfiles}
         activeProfileId={activeProfileId}
         onSelectProfile={setActiveProfileId}
         onUpdateProfile={handleUpdateProfile}
         userName={fullMemory.user.name}
         onUpdateUserName={(name) => {
-            // Update name in local state
             setUserIdentity(prev => ({ ...prev, name }));
         }}
-        // --- NEW PROPS FOR MEMORY UI ---
         memory={userMemory}
         transparencyStatement={getTransparencyStatement()}
         onToggleLock={toggleLock}
@@ -500,13 +541,12 @@ const App: React.FC = () => {
         onSetTheme={setTheme}
         customColors={customThemeColors}
         onUpdateCustomColor={(key, val) => setCustomThemeColors(prev => ({ ...prev, [key]: val }))}
-        profiles={profiles}
+        profiles={availableProfiles}
         activeProfileId={activeProfileId}
         onSelectProfile={setActiveProfileId}
         onOpenVoiceSettings={() => setIsVoiceSettingsOpen(true)}
         memory={fullMemory}
         onUpdateMemory={(newMemory) => {
-            // Propagate updates to App State
             setSessionContext(newMemory.session);
             setWorkspaceContext(newMemory.workspace);
             setUserIdentity({
@@ -523,6 +563,8 @@ const App: React.FC = () => {
         onUpdateConfig={setAdminConfig}
         memory={fullMemory}
         onWipeMemory={wipeMemory}
+        adminPolicy={adminPolicy}
+        onUpdatePolicy={updateAdminPolicy}
       />
 
       {/* --- APP LAYOUT --- */}

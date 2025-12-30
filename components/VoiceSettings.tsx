@@ -20,7 +20,9 @@ interface VoiceSettingsProps {
     onWipeMemory: () => void;
 }
 
-// --- ADVANCED TOOLTIP COMPONENT ---
+// ... Tooltip, SectionHeader, ToggleGroup, SwitchControl components remain same as previous file ...
+// Only SliderControl needs update to show DNA limits
+
 const Tooltip: React.FC<{ title: string; content: string; technical?: string }> = ({ title, content, technical }) => {
     const [isVisible, setIsVisible] = useState(false);
     const tooltipRef = useRef<HTMLDivElement>(null);
@@ -94,8 +96,6 @@ const Tooltip: React.FC<{ title: string; content: string; technical?: string }> 
     );
 };
 
-// --- CONTROL COMPONENTS ---
-
 const SectionHeader: React.FC<{ title: string; subtitle?: string; color?: string }> = ({ title, subtitle, color = "bg-skin-accent" }) => (
     <div className="mb-6 pb-2 border-b border-white/5">
         <h4 className="text-sm font-bold text-skin-text flex items-center gap-2">
@@ -118,54 +118,74 @@ const SliderControl: React.FC<{
     colorClass?: string;
     isLocked?: boolean;
     onToggleLock?: () => void;
-}> = ({ label, value, min, max, step, displayValue, onChange, tooltip, colorClass = "from-skin-secondary to-skin-accent", isLocked, onToggleLock }) => (
-    <div className="py-3 group">
-        <div className="flex justify-between items-end mb-3">
-            <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-skin-muted uppercase tracking-widest group-hover:text-skin-text transition-colors">{label}</span>
-                <Tooltip {...tooltip} />
+    // DNA constraints visualization
+    dnaMin?: number;
+    dnaMax?: number;
+}> = ({ label, value, min, max, step, displayValue, onChange, tooltip, colorClass = "from-skin-secondary to-skin-accent", isLocked, onToggleLock, dnaMin, dnaMax }) => {
+    
+    // Effective min/max for the slider input
+    const effectiveMin = dnaMin !== undefined ? Math.max(min, dnaMin) : min;
+    const effectiveMax = dnaMax !== undefined ? Math.min(max, dnaMax) : max;
+
+    return (
+        <div className="py-3 group relative">
+            <div className="flex justify-between items-end mb-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-skin-muted uppercase tracking-widest group-hover:text-skin-text transition-colors">{label}</span>
+                    <Tooltip {...tooltip} />
+                </div>
+                <div className="flex items-center gap-3">
+                    {onToggleLock && (
+                        <button 
+                            onClick={onToggleLock}
+                            className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${isLocked ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-transparent border-transparent text-skin-muted hover:text-skin-text hover:bg-white/5'}`}
+                            title={isLocked ? "Learning Disabled" : "Learning Enabled"}
+                        >
+                            {isLocked ? (
+                                <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg> LOCK</>
+                            ) : (
+                                <><svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> AUTO</>
+                            )}
+                        </button>
+                    )}
+                    <span className="font-mono text-[10px] font-bold text-skin-accent bg-skin-surface/80 px-2 py-1 rounded border border-skin-border min-w-[3.5rem] text-center">
+                        {displayValue}
+                    </span>
+                </div>
             </div>
-            <div className="flex items-center gap-3">
-                {onToggleLock && (
-                    <button 
-                        onClick={onToggleLock}
-                        className={`text-[9px] uppercase font-bold px-2 py-0.5 rounded border transition-all flex items-center gap-1 ${isLocked ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-transparent border-transparent text-skin-muted hover:text-skin-text hover:bg-white/5'}`}
-                        title={isLocked ? "Learning Disabled" : "Learning Enabled"}
-                    >
-                        {isLocked ? (
-                            <><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path fillRule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clipRule="evenodd" /></svg> LOCK</>
-                        ) : (
-                            <><svg className="w-3 h-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg> AUTO</>
-                        )}
-                    </button>
-                )}
-                <span className="font-mono text-[10px] font-bold text-skin-accent bg-skin-surface/80 px-2 py-1 rounded border border-skin-border min-w-[3.5rem] text-center">
-                    {displayValue}
-                </span>
-            </div>
-        </div>
-        <div className={`relative h-2 flex items-center cursor-pointer touch-none select-none ${isLocked ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
-            <div className="absolute w-full h-1 bg-skin-surface rounded-full overflow-hidden border border-white/5">
+            
+            {/* Range Track */}
+            <div className={`relative h-2 flex items-center cursor-pointer touch-none select-none ${isLocked ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
+                <div className="absolute w-full h-1 bg-skin-surface rounded-full overflow-hidden border border-white/5">
+                    {/* DNA Bounds Visualization (Grey out unsupported areas) */}
+                    {(dnaMin !== undefined && dnaMax !== undefined) && (
+                        <>
+                            <div className="absolute top-0 bottom-0 bg-black/50 z-10" style={{ left: 0, width: `${((dnaMin - min) / (max - min)) * 100}%` }}></div>
+                            <div className="absolute top-0 bottom-0 bg-black/50 z-10" style={{ right: 0, width: `${((max - dnaMax) / (max - min)) * 100}%` }}></div>
+                        </>
+                    )}
+                    <div 
+                        className={`h-full bg-gradient-to-r ${colorClass} opacity-80 group-hover:opacity-100 transition-all duration-200`}
+                        style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+                    ></div>
+                </div>
+                <input 
+                    type="range" min={effectiveMin} max={effectiveMax} step={step}
+                    value={value}
+                    onChange={(e) => onChange(parseFloat(e.target.value))}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                    disabled={isLocked}
+                />
                 <div 
-                    className={`h-full bg-gradient-to-r ${colorClass} opacity-80 group-hover:opacity-100 transition-all duration-200`}
-                    style={{ width: `${((value - min) / (max - min)) * 100}%` }}
+                    className="absolute w-4 h-4 bg-[#f8fafc] rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] border-2 border-skin-base transition-transform duration-100 pointer-events-none transform -translate-x-1/2 scale-75 group-hover:scale-100 group-active:scale-125 z-20"
+                    style={{ left: `${((value - min) / (max - min)) * 100}%` }}
                 ></div>
             </div>
-            <input 
-                type="range" min={min} max={max} step={step}
-                value={value}
-                onChange={(e) => onChange(parseFloat(e.target.value))}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                disabled={isLocked}
-            />
-            <div 
-                className="absolute w-4 h-4 bg-[#f8fafc] rounded-full shadow-[0_0_15px_rgba(255,255,255,0.5)] border-2 border-skin-base transition-transform duration-100 pointer-events-none transform -translate-x-1/2 scale-75 group-hover:scale-100 group-active:scale-125"
-                style={{ left: `${((value - min) / (max - min)) * 100}%` }}
-            ></div>
+            {isLocked && <div className="text-[9px] text-red-400/70 mt-1.5 flex items-center gap-1 font-mono"><span className="w-1 h-1 bg-red-400 rounded-full"></span> PERSISTENT OVERRIDE ACTIVE</div>}
+            {(dnaMin !== undefined) && <div className="text-[9px] text-skin-muted mt-1 opacity-50 text-right w-full">DNA Bound: {dnaMin}-{dnaMax}</div>}
         </div>
-        {isLocked && <div className="text-[9px] text-red-400/70 mt-1.5 flex items-center gap-1 font-mono"><span className="w-1 h-1 bg-red-400 rounded-full"></span> PERSISTENT OVERRIDE ACTIVE</div>}
-    </div>
-);
+    );
+};
 
 const ToggleGroup: React.FC<{
     label: string;
@@ -223,6 +243,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
     if (!isOpen) return null;
 
     const activeProfile = profiles.find(p => p.id === activeProfileId) || profiles[0];
+    const dna = activeProfile.dna;
 
     return (
         <div className="fixed inset-0 z-[100] flex items-end md:items-center justify-center sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -306,7 +327,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
 
                         {activeTab === 'memory' && (
                             <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                                {/* Workspace Context Selector */}
+                                {/* ... Memory UI (Unchanged) ... */}
                                 <div className="p-6 bg-[#09090b] rounded-xl border border-white/10 shadow-xl">
                                     <h4 className="text-xs font-bold text-skin-muted uppercase tracking-widest mb-4">Context Scope</h4>
                                     <div className="flex flex-col gap-3">
@@ -339,7 +360,6 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                     </div>
                                 </div>
 
-                                {/* Transparency Summary */}
                                 <div className="p-6 bg-gradient-to-br from-indigo-950/30 to-black rounded-xl border border-indigo-500/20 relative overflow-hidden">
                                     <div className="absolute top-0 right-0 p-3 opacity-10">
                                         <svg className="w-16 h-16 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>
@@ -379,12 +399,14 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { pace: v })}
                                             tooltip={{
                                                 title: "Speech Rate",
-                                                content: "Controls the baseline playback speed. Lower values (0.8-0.9x) create a thoughtful, educational delivery. Higher values (1.1-1.3x) mimic high-energy podcast hosts.",
+                                                content: "Controls the baseline playback speed. Constrained by Voice DNA to maintain intelligibility.",
                                                 technical: "Modulates the duration of phonemes without altering pitch."
                                             }}
                                             colorClass="from-orange-500/50 to-red-500"
                                             isLocked={memory.lockedTraits.includes('pace')}
                                             onToggleLock={() => onToggleLock('pace')}
+                                            dnaMin={dna?.paceRange[0]}
+                                            dnaMax={dna?.paceRange[1]}
                                         />
                                         <SliderControl 
                                             label="Warmth"
@@ -392,12 +414,14 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { warmth: v })}
                                             tooltip={{
                                                 title: "Tonal Temperature",
-                                                content: "Adjusts empathy and softness. High warmth increases pitch variability and breathiness for connection. Low warmth flattens affect for professional objectivity.",
+                                                content: "Adjusts empathy and softness.",
                                                 technical: "Affects formant shifting and pitch variance amplitude."
                                             }}
                                             colorClass="from-rose-500/50 to-pink-500"
                                             isLocked={memory.lockedTraits.includes('warmth')}
                                             onToggleLock={() => onToggleLock('warmth')}
+                                            dnaMin={dna?.warmthRange[0]}
+                                            dnaMax={dna?.warmthRange[1]}
                                         />
                                         <SliderControl 
                                             label="Energy"
@@ -405,10 +429,12 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { energy: v })}
                                             tooltip={{
                                                 title: "Dynamic Intensity",
-                                                content: "Sets the excitement level. High energy leads to louder, punchier delivery. Low energy is calm and reserved.",
+                                                content: "Sets the excitement level.",
                                                 technical: "Controls volume compression and attack/decay envelopes."
                                             }}
                                             colorClass="from-yellow-500/50 to-orange-500"
+                                            dnaMin={dna?.energyRange[0]}
+                                            dnaMax={dna?.energyRange[1]}
                                         />
                                         <SliderControl 
                                             label="Firmness"
@@ -416,7 +442,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                             onChange={(v) => onUpdateProfile(activeProfile.id, { firmness: v })}
                                             tooltip={{
                                                 title: "Assertiveness",
-                                                content: "Determines confidence level. High firmness reduces hedging and upspeak. Low firmness sounds more collaborative.",
+                                                content: "Determines confidence level.",
                                                 technical: "Reduces sentence-final pitch rise (upspeak)."
                                             }}
                                             colorClass="from-slate-500/50 to-white"
@@ -440,7 +466,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                 onChange={(v) => onUpdateProfile(activeProfile.id, { brevity: v })}
                                                 tooltip={{
                                                     title: "Conciseness",
-                                                    content: "Higher values force efficient, dense communication. Lower values allow for storytelling and elaboration.",
+                                                    content: "Higher values force efficient, dense communication.",
                                                     technical: "Adjusts token budget penalty for length."
                                                 }}
                                                 colorClass="from-blue-500/50 to-indigo-500"
@@ -455,8 +481,8 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                 onChange={(v) => onUpdateProfile(activeProfile.id, { thoughtDelay: v as any })} 
                                                 tooltip={{
                                                     title: "Simulated Latency",
-                                                    content: "Inserts a pause before responding to complex queries, mimicking human thought processing.",
-                                                    technical: "Adds randomized pre-response silence (0.5s - 2.0s)."
+                                                    content: "Inserts a pause before responding to complex queries.",
+                                                    technical: "Adds randomized pre-response silence."
                                                 }}
                                             />
 
@@ -466,7 +492,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                 onChange={(v) => onUpdateProfile(activeProfile.id, { emotionalDrift: v })} 
                                                 tooltip={{
                                                     title: "Sentiment Adaptation",
-                                                    content: "Allows voice tone to gradually shift based on the user's detected mood during the session.",
+                                                    content: "Allows voice tone to gradually shift based on the user's detected mood.",
                                                     technical: "Enables real-time sentiment analysis feedback loop."
                                                 }}
                                             />
@@ -485,7 +511,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                 onChange={(v) => onUpdateProfile(activeProfile.id, { microHesitation: v as any })} 
                                                 tooltip={{
                                                     title: "Disfluency Injection",
-                                                    content: "Adds subtle stutters or pauses mid-sentence to simulate searching for words.",
+                                                    content: "Adds subtle stutters or pauses mid-sentence.",
                                                     technical: "Probabilistic insertion of silence tokens."
                                                 }}
                                             />
@@ -497,7 +523,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                 onChange={(v) => onUpdateProfile(activeProfile.id, { naturalFillers: v as any })} 
                                                 tooltip={{
                                                     title: "Filler Words",
-                                                    content: "Inserts 'um', 'uh', 'you know' to make the speech sound less scripted and more conversational.",
+                                                    content: "Inserts 'um', 'uh', 'you know'.",
                                                     technical: "Conversational filler injection model."
                                                 }}
                                             />
@@ -509,7 +535,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                                                     onChange={(v) => onUpdateProfile(activeProfile.id, { selfCorrection: v })} 
                                                     tooltip={{
                                                         title: "Reformulation",
-                                                        content: "Occasionally restarts a sentence to clarify meaning, as humans do.",
+                                                        content: "Occasionally restarts a sentence to clarify meaning.",
                                                         technical: "Simulates false starts."
                                                     }}
                                                 />

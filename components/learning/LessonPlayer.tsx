@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { PodcastEpisode, PodcastChapter, ConnectionState } from '../../types';
 import { base64ToFloat32, createAudioBuffer } from '../../utils/audioUtils';
 import { useGeminiLive } from '../../hooks/useGeminiLive';
@@ -35,7 +35,6 @@ export const LessonPlayer: React.FC<PodcastPlayerProps> = (props) => (
 const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceContext, onBack, onAskQuestion }) => {
   // --- Podcast Audio State ---
   const [isPlaying, setIsPlaying] = useState(false);
-  // Ref to track playing state without triggering re-renders in callbacks
   const isPlayingRef = useRef(false);
   
   const [progress, setProgress] = useState(0);
@@ -45,12 +44,17 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
   
   // --- View State ---
   const [showStudyPanel, setShowStudyPanel] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chapters' | 'producer' | 'glossary'>('chapters');
+  const [activeTab, setActiveTab] = useState<'chapters' | 'producer' | 'export' | 'publish'>('chapters');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   
+  // --- Teach Along State ---
+  const [showTeachOverlay, setShowTeachOverlay] = useState(false);
+  const [currentBeat, setCurrentBeat] = useState<any>(null);
+  const [teachAlongActive, setTeachAlongActive] = useState(false);
+
   // --- Audio Refs (Podcast) ---
   const audioContextRef = useRef<AudioContext | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null); // New Gain Node for Fading
+  const gainNodeRef = useRef<GainNode | null>(null); 
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const startTimeRef = useRef<number>(0);
   const pauseTimeRef = useRef<number>(0);
@@ -59,7 +63,7 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
   
   // Services
   const sessionManager = useRef(AudioSessionManager.getInstance()).current;
-  const { generateChapters } = useLearningAI();
+  const { generateChapters, generateStudyMaterials, generateRSSFeed } = useLearningAI();
 
   // --- Voice Tutor Hook (Live API) ---
   const tutorSystemInstruction = `
@@ -80,8 +84,6 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
   });
 
   // --- Audio Implementation ---
-
-  // Helper to update state and ref together
   const setPlayingState = (playing: boolean) => {
       setIsPlaying(playing);
       isPlayingRef.current = playing;
@@ -93,30 +95,17 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       const ctx = audioContextRef.current;
       if (ctx.state === 'suspended') await ctx.resume();
 
-      if (sourceRef.current) {
-          try { sourceRef.current.stop(); } catch(e){}
-      }
+      if (sourceRef.current) try { sourceRef.current.stop(); } catch(e){}
 
       const source = ctx.createBufferSource();
       source.buffer = bufferRef.current;
       
-      // Safety: Ensure gain node exists and is connected
       if (!gainNodeRef.current) {
           gainNodeRef.current = ctx.createGain();
           gainNodeRef.current.connect(ctx.destination);
       }
+      source.connect(gainNodeRef.current);
       
-      try {
-          source.connect(gainNodeRef.current);
-      } catch (err) {
-          console.error("Audio Connection Error:", err);
-          // Recovery: Recreate gain node if connection fails (likely context mismatch)
-          gainNodeRef.current = ctx.createGain();
-          gainNodeRef.current.connect(ctx.destination);
-          source.connect(gainNodeRef.current);
-      }
-      
-      // Strict Clamping for Offset
       let offset = pauseTimeRef.current;
       if (!Number.isFinite(offset)) offset = 0;
       offset = Math.max(0, Math.min(offset, bufferRef.current.duration));
@@ -125,12 +114,9 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       try {
           source.start(0, offset);
           startTimeRef.current = ctx.currentTime - offset;
-          
           sourceRef.current = source;
           source.onended = () => {
-              // Only reset if we naturally reached the end
               if (sourceRef.current === source) {
-                  // Check if we are at the end
                   if (ctx.currentTime - startTimeRef.current >= (bufferRef.current?.duration || 0) - 0.5) {
                      setPlayingState(false);
                      sessionManager.reportPodcastStopped();
@@ -140,22 +126,26 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
                   }
               }
           };
-          
           setPlayingState(true);
           
           const updateProgress = () => {
-              // Use refs for loop to access fresh state without closure issues
               if (ctx && bufferRef.current && sourceRef.current && isPlayingRef.current) {
                   const elapsed = ctx.currentTime - startTimeRef.current;
                   const validElapsed = Math.max(0, Math.min(elapsed, bufferRef.current.duration));
-                  
                   setCurrentTime(validElapsed);
-                  const pct = (validElapsed / bufferRef.current.duration) * 100;
-                  setProgress(pct);
+                  setProgress((validElapsed / bufferRef.current.duration) * 100);
                   
-                  if (validElapsed < bufferRef.current.duration) {
-                      animationRef.current = requestAnimationFrame(updateProgress);
+                  // CHECK TEACH ALONG BEATS
+                  if (teachAlongActive && episode.teachingMap?.beats) {
+                      const beat = episode.teachingMap.beats.find(b => Math.abs(b.timestamp - validElapsed) < 1.0);
+                      if (beat && currentBeat?.id !== beat.id) {
+                          pauseAudioInternal();
+                          setCurrentBeat(beat);
+                          setShowTeachOverlay(true);
+                      }
                   }
+
+                  if (validElapsed < bufferRef.current.duration) animationRef.current = requestAnimationFrame(updateProgress);
               }
           };
           updateProgress();
@@ -163,41 +153,29 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
           console.error("Audio Playback Failed:", e);
           setPlayingState(false);
       }
-  }, [sessionManager]);
+  }, [sessionManager, teachAlongActive, currentBeat, episode.teachingMap]);
 
   const pauseAudioInternal = useCallback(() => {
       if (sourceRef.current && audioContextRef.current) {
-          try {
-              sourceRef.current.stop();
-          } catch (e) {
-              console.warn("Stop failed", e);
-          }
+          try { sourceRef.current.stop(); } catch (e) {}
           sourceRef.current = null;
-          
           const ctx = audioContextRef.current;
           const elapsed = ctx.currentTime - startTimeRef.current;
           pauseTimeRef.current = Math.max(0, elapsed);
-          
           setPlayingState(false);
           cancelAnimationFrame(animationRef.current);
       }
   }, []);
 
-  // 1. Initialize Audio Engine (Only runs when audio source changes)
   useEffect(() => {
     const initAudio = async () => {
         if (!episode.audioBase64) return;
-        
-        // Close existing context if any
         if (audioContextRef.current) {
             audioContextRef.current.close();
             audioContextRef.current = null;
-            gainNodeRef.current = null;
         }
-
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
         audioContextRef.current = ctx;
-        
         const gain = ctx.createGain();
         gain.connect(ctx.destination);
         gainNodeRef.current = gain;
@@ -212,22 +190,14 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
         }
     };
     initAudio();
-
     return () => {
         if (sourceRef.current) try { sourceRef.current.stop(); } catch(e){}
         if (audioContextRef.current) audioContextRef.current.close();
-        
-        // Nullify to prevent stale access
         audioContextRef.current = null;
-        gainNodeRef.current = null;
-        bufferRef.current = null;
-        sourceRef.current = null;
-        
         cancelAnimationFrame(animationRef.current);
     };
   }, [episode.audioBase64]);
 
-  // 2. Register with Session Manager (Runs once on mount)
   useEffect(() => {
     sessionManager.registerPodcast({
         play: playAudioInternal,
@@ -243,13 +213,10 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
                     gain.setValueAtTime(gain.value, ctx.currentTime);
                     gain.linearRampToValueAtTime(volume, ctx.currentTime + duration);
                     await new Promise(r => setTimeout(r, duration * 1000));
-                } catch (e) {
-                    console.warn("Fade failed", e);
-                }
+                } catch (e) {}
             }
         }
     });
-
     return () => {
         disconnectTutor();
         sessionManager.unregisterPodcast();
@@ -262,9 +229,7 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
           sessionManager.reportPodcastStopped();
       } else {
           const allowed = sessionManager.requestPodcastStart();
-          if (allowed) {
-              playAudioInternal();
-          }
+          if (allowed) playAudioInternal();
       }
   };
 
@@ -272,11 +237,9 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       const newPct = parseFloat(e.target.value);
       setProgress(newPct);
       if (!bufferRef.current) return;
-      
       const newTime = (newPct / 100) * bufferRef.current.duration;
       pauseTimeRef.current = Math.max(0, Math.min(newTime, bufferRef.current.duration));
       setCurrentTime(pauseTimeRef.current);
-      
       if (isPlaying) {
           if (sourceRef.current) try { sourceRef.current.stop(); } catch(e){}
           playAudioInternal(); 
@@ -288,7 +251,6 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       pauseTimeRef.current = Math.max(0, Math.min(time, bufferRef.current.duration));
       setCurrentTime(pauseTimeRef.current);
       setProgress((pauseTimeRef.current / bufferRef.current.duration) * 100);
-      
       if (isPlaying) {
           if (sourceRef.current) try { sourceRef.current.stop(); } catch(e){}
           playAudioInternal();
@@ -301,77 +263,103 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       if (newChapters.length > 0) setChapters(newChapters);
   };
 
+  // --- Export Logic ---
+  const [localExports, setLocalExports] = useState(episode.exports || {});
+  const [isExporting, setIsExporting] = useState(false);
+  
+  const handleExport = async () => {
+      setIsExporting(true);
+      const result = await generateStudyMaterials(episode);
+      if (result) {
+          setLocalExports(result);
+          // In real app, save to DB
+      }
+      setIsExporting(false);
+  };
+
+  // --- Publish Logic ---
+  const [localPublishing, setLocalPublishing] = useState(episode.publishing || { isPublished: false });
+  const handlePublish = () => {
+      const metadata = generateRSSFeed(episode);
+      setLocalPublishing(metadata);
+  };
+
+  // --- Teach Along Handlers ---
+  const startTeachSession = async () => {
+      setShowTeachOverlay(false);
+      setShowStudyPanel(true);
+      setActiveTab('producer');
+      await connectTutor();
+  };
+
+  const skipTeachSession = () => {
+      setShowTeachOverlay(false);
+      setCurrentBeat(null); // Clear beat so it doesn't re-trigger immediately
+      setTimeout(() => togglePlay(), 500); // Resume
+  };
+
   return (
     <div className={`h-[100dvh] w-full flex flex-col md:flex-row gap-4 md:gap-6 p-2 md:p-6 max-w-7xl mx-auto relative overflow-hidden transition-all duration-500 ${showStudyPanel ? '' : 'items-center justify-center'}`}>
       
       {showDiagnostics && <AudioDashboard onClose={() => setShowDiagnostics(false)} />}
 
-      {/* Mobile Top Bar */}
+      {/* TEACH ALONG OVERLAY */}
+      {showTeachOverlay && currentBeat && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in">
+              <div className="glass-panel p-8 rounded-2xl max-w-md w-full text-center border-skin-accent shadow-[0_0_50px_rgba(6,182,212,0.3)]">
+                  <div className="w-16 h-16 bg-skin-accent/20 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8 text-skin-accent">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.499 5.216 50.59 50.59 0 00-2.658.812m-15.482 0A50.717 50.717 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
+                      </svg>
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-2">Checkpoint Reached</h3>
+                  <p className="text-skin-muted mb-6 text-sm">"{currentBeat.prompt}"</p>
+                  
+                  <div className="flex flex-col gap-3">
+                      <button onClick={startTeachSession} className="btn-glow px-6 py-3 rounded-xl text-white font-bold uppercase tracking-wide">
+                          Yes, Let's Chat
+                      </button>
+                      <button onClick={skipTeachSession} className="px-6 py-3 rounded-xl border border-white/10 hover:bg-white/5 text-skin-muted hover:text-white transition-colors text-sm font-bold uppercase">
+                          No, Continue Listening
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {!showStudyPanel && (
         <div className="md:hidden flex items-center justify-between mb-1 w-full shrink-0">
             <button onClick={onBack} className="text-skin-muted p-2">Back</button>
             <span className="text-xs font-bold text-skin-muted uppercase tracking-widest">Now Playing</span>
             <button onClick={() => setShowDiagnostics(true)} className="p-2 text-skin-muted">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
-                </svg>
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" /><path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" /></svg>
             </button>
         </div>
       )}
 
       {/* LEFT PANEL: Player */}
-      <div className={`flex flex-col transition-all duration-500 shrink-0 ${
-          showStudyPanel 
-            ? 'w-full md:w-[400px] h-auto md:h-full gap-2 md:gap-6' 
-            : 'w-full max-w-md gap-4 md:gap-6'
-      }`}>
+      <div className={`flex flex-col transition-all duration-500 shrink-0 ${showStudyPanel ? 'w-full md:w-[400px] h-auto md:h-full gap-2 md:gap-6' : 'w-full max-w-md gap-4 md:gap-6'}`}>
         
         <div className="hidden md:flex justify-between items-center mb-2">
-             <button onClick={onBack} className="text-skin-muted hover:text-skin-text flex items-center gap-2 text-sm font-medium">
-                Back to Dashboard
-            </button>
-            <button onClick={() => setShowDiagnostics(true)} className="text-[10px] text-skin-muted hover:text-skin-accent font-bold uppercase tracking-widest flex items-center gap-2">
-                 Diagnostics
-                 <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-            </button>
+             <button onClick={onBack} className="text-skin-muted hover:text-skin-text flex items-center gap-2 text-sm font-medium">Back to Dashboard</button>
+             <button onClick={() => setShowDiagnostics(true)} className="text-[10px] text-skin-muted hover:text-skin-accent font-bold uppercase tracking-widest flex items-center gap-2">Diagnostics <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div></button>
         </div>
         
-        <div className={`glass-panel rounded-3xl border border-skin-border relative overflow-hidden shadow-2xl flex flex-col items-center text-center transition-all duration-500 ${
-            showStudyPanel 
-                ? 'p-3 md:p-6 flex-row md:flex-col gap-3 md:gap-0' 
-                : 'p-6 md:p-8'
-        }`}>
+        <div className={`glass-panel rounded-3xl border border-skin-border relative overflow-hidden shadow-2xl flex flex-col items-center text-center transition-all duration-500 ${showStudyPanel ? 'p-3 md:p-6 flex-row md:flex-col gap-3 md:gap-0' : 'p-6 md:p-8'}`}>
              
              {/* Cover Art / Visualizer Area */}
-             <div className={`relative rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10 shrink-0 transition-all bg-skin-base ${
-                 showStudyPanel 
-                    ? 'hidden md:block w-32 h-32 md:w-48 md:h-48 md:mb-4' 
-                    : 'w-64 h-64 mb-8'
-             }`}>
+             <div className={`relative rounded-2xl overflow-hidden shadow-2xl ring-1 ring-white/10 shrink-0 transition-all bg-skin-base ${showStudyPanel ? 'hidden md:block w-32 h-32 md:w-48 md:h-48 md:mb-4' : 'w-64 h-64 mb-8'}`}>
                  {tutorConnectionState === ConnectionState.CONNECTED ? (
-                     <>
-                        <Visualizer volume={tutorVolume} isActive={true} />
-                        <div className="absolute top-2 left-2 bg-red-500/20 text-red-400 border border-red-500/50 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider animate-pulse">
-                            Live Studio
-                        </div>
-                     </>
+                     <><Visualizer volume={tutorVolume} isActive={true} /><div className="absolute top-2 left-2 bg-red-500/20 text-red-400 border border-red-500/50 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider animate-pulse">Live Studio</div></>
                  ) : (
-                     episode.coverImageBase64 ? (
-                         <img src={`data:image/png;base64,${episode.coverImageBase64}`} className="w-full h-full object-cover" />
-                     ) : (
-                         <div className="w-full h-full bg-skin-surface flex items-center justify-center text-skin-muted">Podcast</div>
-                     )
+                     episode.coverImageBase64 ? <img src={`data:image/png;base64,${episode.coverImageBase64}`} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-skin-surface flex items-center justify-center text-skin-muted">Podcast</div>
                  )}
              </div>
 
-             {/* Player Content */}
              <div className={`w-full flex flex-col justify-center ${showStudyPanel ? 'text-left md:text-center' : 'text-center'}`}>
                 <div className={`space-y-1 w-full ${showStudyPanel ? 'mb-2 md:mb-4' : 'mb-8'}`}>
-                    <h2 className={`font-bold text-skin-text leading-tight line-clamp-2 ${showStudyPanel ? 'text-sm md:text-xl' : 'text-xl'}`}>
-                        {episode.title}
-                    </h2>
-                    {!showStudyPanel && <p className="text-skin-muted text-xs uppercase tracking-widest">{episode.type} Episode</p>}
+                    <h2 className={`font-bold text-skin-text leading-tight line-clamp-2 ${showStudyPanel ? 'text-sm md:text-xl' : 'text-xl'}`}>{episode.title}</h2>
+                    {!showStudyPanel && <p className="text-skin-muted text-xs uppercase tracking-widest">{episode.type} • {episode.hostConfig?.personality || 'Standard'} Host</p>}
                 </div>
                 
                 {/* Progress */}
@@ -380,57 +368,28 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
                         <div className="absolute inset-y-0 left-0 bg-skin-accent rounded-full" style={{ width: `${progress}%` }}></div>
                         <input type="range" min="0" max="100" step="0.1" value={progress} onChange={handleSeek} className="absolute inset-0 w-full opacity-0 cursor-pointer" />
                     </div>
-                    <div className="flex justify-between text-[10px] font-mono text-skin-muted">
-                        <span>{formatTime(currentTime)}</span>
-                        <span>{formatTime(duration)}</span>
-                    </div>
+                    <div className="flex justify-between text-[10px] font-mono text-skin-muted"><span>{formatTime(currentTime)}</span><span>{formatTime(duration)}</span></div>
                 </div>
                 
-                {/* Controls */}
                 <div className={`flex items-center gap-4 md:gap-8 ${showStudyPanel ? 'justify-start md:justify-center' : 'justify-center'}`}>
-                    
-                    <button className="text-skin-muted hover:text-skin-text" onClick={() => handleSeek({ target: { value: Math.max(0, progress - 5) } } as any)}>
-                        <span className="hidden md:inline">-10s</span>
-                        <span className="md:hidden">10s</span>
+                    <button className="text-skin-muted hover:text-skin-text" onClick={() => handleSeek({ target: { value: Math.max(0, progress - 5) } } as any)}><span className="hidden md:inline">-10s</span><span className="md:hidden">10s</span></button>
+                    <button onClick={togglePlay} className={`rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg ${showStudyPanel ? 'w-10 h-10 md:w-16 md:h-16' : 'w-16 h-16'} ${episode.type === 'Teaching' ? 'bg-skin-secondary shadow-skin-secondary/40' : 'bg-skin-accent shadow-skin-accent/40'}`}>
+                        {isPlaying ? <svg className={`${showStudyPanel ? 'w-4 h-4 md:w-6 md:h-6' : 'w-6 h-6'} text-skin-base`} fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg> : <svg className={`${showStudyPanel ? 'w-4 h-4 md:w-6 md:h-6' : 'w-6 h-6'} text-skin-base ml-1`} fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>}
                     </button>
-                    
-                    <button 
-                        onClick={togglePlay}
-                        className={`rounded-full flex items-center justify-center hover:scale-105 transition-transform shadow-lg ${
-                            showStudyPanel ? 'w-10 h-10 md:w-16 md:h-16' : 'w-16 h-16'
-                        } ${
-                            episode.type === 'Teaching' ? 'bg-skin-secondary shadow-skin-secondary/40' : 'bg-skin-accent shadow-skin-accent/40'
-                        }`}
-                    >
-                        {isPlaying ? (
-                            <svg className={`${showStudyPanel ? 'w-4 h-4 md:w-6 md:h-6' : 'w-6 h-6'} text-skin-base`} fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6zm8 0h4v16h-4z"/></svg>
-                        ) : (
-                            <svg className={`${showStudyPanel ? 'w-4 h-4 md:w-6 md:h-6' : 'w-6 h-6'} text-skin-base ml-1`} fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                        )}
-                    </button>
-
-                    <button className="text-skin-muted hover:text-skin-text" onClick={() => handleSeek({ target: { value: Math.min(100, progress + 5) } } as any)}>
-                        <span className="hidden md:inline">+10s</span>
-                        <span className="md:hidden">10s</span>
-                    </button>
-
-                    {showStudyPanel && (
-                         <button 
-                             onClick={() => setShowStudyPanel(false)}
-                             className="md:hidden ml-auto text-xs font-bold text-skin-muted uppercase border border-skin-border px-3 py-1.5 rounded-full"
-                         >
-                             Close
-                         </button>
-                    )}
+                    <button className="text-skin-muted hover:text-skin-text" onClick={() => handleSeek({ target: { value: Math.min(100, progress + 5) } } as any)}><span className="hidden md:inline">+10s</span><span className="md:hidden">10s</span></button>
+                    {showStudyPanel && <button onClick={() => setShowStudyPanel(false)} className="md:hidden ml-auto text-xs font-bold text-skin-muted uppercase border border-skin-border px-3 py-1.5 rounded-full">Close</button>}
                 </div>
 
-                <div className={`mt-6 ${showStudyPanel ? 'hidden md:block' : 'block'}`}>
+                <div className={`mt-6 space-y-3 ${showStudyPanel ? 'hidden md:block' : 'block'}`}>
+                   {/* Teach Along Toggle */}
                    <button 
-                       onClick={() => setShowStudyPanel(!showStudyPanel)}
-                       className="text-xs font-bold text-skin-muted hover:text-skin-text uppercase tracking-widest border border-skin-border px-4 py-2 rounded-full hover:bg-skin-surface-hover transition-colors"
+                        onClick={() => setTeachAlongActive(!teachAlongActive)}
+                        className={`w-full text-xs font-bold uppercase tracking-widest border px-4 py-2 rounded-full transition-colors flex items-center justify-center gap-2 ${teachAlongActive ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-skin-border text-skin-muted hover:text-skin-text'}`}
                    >
-                       {showStudyPanel ? 'Hide Tools' : 'Open Production Tools'}
+                       {teachAlongActive ? 'Teach Along Active' : 'Enable Teach Along'}
+                       {teachAlongActive && <span className="w-2 h-2 bg-white rounded-full animate-pulse"></span>}
                    </button>
+                   <button onClick={() => setShowStudyPanel(!showStudyPanel)} className="w-full text-xs font-bold text-skin-muted hover:text-skin-text uppercase tracking-widest border border-skin-border px-4 py-2 rounded-full hover:bg-skin-surface-hover transition-colors">{showStudyPanel ? 'Hide Tools' : 'Open Production Tools'}</button>
                 </div>
              </div>
         </div>
@@ -439,62 +398,100 @@ const LessonPlayerInternal: React.FC<PodcastPlayerProps> = ({ episode, sourceCon
       {/* RIGHT PANEL: Enterprise Tools */}
       {showStudyPanel && (
         <div className="flex-1 w-full flex flex-col glass-panel rounded-3xl border border-skin-border overflow-hidden shadow-xl min-h-0 animate-in fade-in slide-in-from-right-4 duration-300">
-            {/* Tabs */}
-            <div className="flex border-b border-skin-border bg-skin-surface shrink-0">
-                <button 
-                    onClick={() => setActiveTab('chapters')}
-                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'chapters' ? 'text-skin-text border-b-2 border-skin-secondary' : 'text-skin-muted hover:text-skin-text'}`}
-                >
-                    Chapters
-                </button>
-                <button 
-                    onClick={() => setActiveTab('producer')}
-                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 ${activeTab === 'producer' ? 'text-skin-text border-b-2 border-red-500' : 'text-skin-muted hover:text-skin-text'}`}
-                >
-                    <div className={`w-2 h-2 rounded-full ${tutorConnectionState === ConnectionState.CONNECTED ? 'bg-red-500 animate-pulse' : 'bg-skin-muted'}`}></div>
-                    Producer
-                </button>
-                <button 
-                    onClick={() => setActiveTab('glossary')}
-                    className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider ${activeTab === 'glossary' ? 'text-skin-text border-b-2 border-skin-accent' : 'text-skin-muted hover:text-skin-text'}`}
-                >
-                    Terms
-                </button>
+            <div className="flex border-b border-skin-border bg-skin-surface shrink-0 overflow-x-auto">
+                <button onClick={() => setActiveTab('chapters')} className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'chapters' ? 'text-skin-text border-b-2 border-skin-secondary' : 'text-skin-muted hover:text-skin-text'}`}>Chapters</button>
+                <button onClick={() => setActiveTab('producer')} className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 whitespace-nowrap ${activeTab === 'producer' ? 'text-skin-text border-b-2 border-red-500' : 'text-skin-muted hover:text-skin-text'}`}><div className={`w-2 h-2 rounded-full ${tutorConnectionState === ConnectionState.CONNECTED ? 'bg-red-500 animate-pulse' : 'bg-skin-muted'}`}></div>Producer</button>
+                <button onClick={() => setActiveTab('export')} className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'export' ? 'text-skin-text border-b-2 border-skin-accent' : 'text-skin-muted hover:text-skin-text'}`}>Export</button>
+                <button onClick={() => setActiveTab('publish')} className={`flex-1 py-3 px-4 text-xs font-bold uppercase tracking-wider whitespace-nowrap ${activeTab === 'publish' ? 'text-skin-text border-b-2 border-green-500' : 'text-skin-muted hover:text-skin-text'}`}>Publish</button>
             </div>
 
-            {/* Content Container */}
             <div className="flex-1 overflow-y-auto bg-skin-base/30 relative custom-scrollbar">
-                
                 {activeTab === 'chapters' && (
-                    <ChapterManager 
-                        chapters={chapters} 
-                        currentTime={currentTime} 
-                        duration={duration} 
-                        onSeek={jumpToTime}
-                        onGenerateMore={handleGenerateChapters}
-                    />
+                    <ChapterManager chapters={chapters} currentTime={currentTime} duration={duration} onSeek={jumpToTime} onGenerateMore={handleGenerateChapters} />
                 )}
-
                 {activeTab === 'producer' && (
-                    <ProducerPanel 
-                        startAudio={async () => {
-                            await connectTutor();
-                        }}
-                        stopAudio={() => {
-                            disconnectTutor();
-                        }}
-                        liveTranscripts={liveTranscripts}
-                    />
+                    <ProducerPanel startAudio={async () => { await connectTutor(); }} stopAudio={() => { disconnectTutor(); }} liveTranscripts={liveTranscripts} />
                 )}
-
-                {activeTab === 'glossary' && episode.blueprint?.glossary && (
-                    <div className="p-4 md:p-6 grid grid-cols-1 gap-4 pb-20">
-                        {episode.blueprint.glossary.map((term, i) => (
-                            <div key={i} className="p-4 bg-skin-surface rounded-xl border border-skin-border">
-                                <div className="text-sm font-bold text-skin-accent mb-1">{term.term}</div>
-                                <div className="text-xs text-skin-text leading-relaxed">{term.definition}</div>
+                {activeTab === 'export' && (
+                    <div className="p-8 flex flex-col items-center justify-center h-full space-y-6">
+                        <div className="text-center">
+                            <h3 className="text-xl font-bold text-skin-text mb-2">Study Pack Generator</h3>
+                            <p className="text-skin-muted text-sm max-w-md mx-auto">Create slides and study guides directly from this episode's content.</p>
+                        </div>
+                        
+                        {localExports.studyPdfUrl ? (
+                            <div className="w-full max-w-sm bg-skin-surface p-4 rounded-xl border border-skin-border space-y-4">
+                                <div className="flex items-center gap-3 text-green-400">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.857-9.809a.75.75 0 00-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 10-1.06 1.061l2.5 2.5a.75.75 0 001.137-.089l4-5.5z" clipRule="evenodd" /></svg>
+                                    <span className="font-bold text-sm">Generation Complete</span>
+                                </div>
+                                <a href={localExports.studyPdfUrl} download="StudyGuide.txt" className="block w-full py-3 bg-skin-accent text-skin-base text-center font-bold uppercase rounded-lg hover:bg-skin-accent-hover">Download Study Guide</a>
+                                <div className="text-[10px] text-skin-muted text-center">Markdown Slides generated. (UI Preview Coming Soon)</div>
                             </div>
-                        ))}
+                        ) : (
+                            <button 
+                                onClick={handleExport}
+                                disabled={isExporting}
+                                className="btn-glow px-8 py-4 rounded-xl text-white font-bold uppercase tracking-widest disabled:opacity-50 flex items-center gap-3"
+                            >
+                                {isExporting ? (
+                                    <>Generating... <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div></>
+                                ) : (
+                                    "Generate Study Pack"
+                                )}
+                            </button>
+                        )}
+                    </div>
+                )}
+                {activeTab === 'publish' && (
+                    <div className="p-8 h-full">
+                        <h3 className="text-xl font-bold text-skin-text mb-6">Podcast Distribution</h3>
+                        
+                        {!localPublishing.isPublished ? (
+                            <div className="bg-skin-surface border border-skin-border p-6 rounded-xl text-center space-y-4">
+                                <div className="w-16 h-16 bg-skin-base rounded-full mx-auto flex items-center justify-center border border-skin-border">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-skin-muted">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12.75 19.5v-.75a7.5 7.5 0 00-7.5-7.5H4.5m0-6.75h.75c7.87 0 14.25 6.38 14.25 14.25v.75M6 18.75a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-skin-text">Ready to Publish</h4>
+                                    <p className="text-skin-muted text-sm mt-1">Make this episode available via RSS to podcast apps like Apple Podcasts and Spotify.</p>
+                                </div>
+                                <button onClick={handlePublish} className="w-full py-3 bg-green-600 hover:bg-green-500 text-white font-bold uppercase rounded-lg transition-colors">
+                                    Publish RSS Feed
+                                </button>
+                                <p className="text-[10px] text-skin-muted">By publishing, you agree to the content distribution policy.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6 animate-in fade-in">
+                                <div className="bg-green-500/10 border border-green-500/30 p-4 rounded-xl flex items-center gap-4">
+                                    <div className="w-10 h-10 bg-green-500 rounded-full flex items-center justify-center text-white">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-green-400">Published Successfully</div>
+                                        <div className="text-xs text-skin-muted">Your feed is live and ready for distribution.</div>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-skin-muted uppercase tracking-widest">RSS Feed URL</label>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={localPublishing.rssUrl} className="flex-1 glass-input px-3 py-2 rounded-lg text-sm font-mono text-skin-text" />
+                                        <button className="px-4 py-2 bg-skin-surface border border-skin-border rounded-lg text-xs font-bold hover:text-white">Copy</button>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-xs font-bold text-skin-muted uppercase tracking-widest">Public Page</label>
+                                    <div className="flex gap-2">
+                                        <input readOnly value={localPublishing.publicPageUrl} className="flex-1 glass-input px-3 py-2 rounded-lg text-sm font-mono text-skin-text" />
+                                        <button className="px-4 py-2 bg-skin-surface border border-skin-border rounded-lg text-xs font-bold hover:text-white">Visit</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

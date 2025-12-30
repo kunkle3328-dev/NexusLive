@@ -11,7 +11,6 @@ export enum ConnectionState {
   ERROR = 'ERROR',
 }
 
-// NEW: Granular Voice State Machine
 export enum VoiceState {
   IDLE = 'IDLE',
   LISTENING = 'LISTENING',
@@ -36,7 +35,6 @@ export interface VisualizerData {
 
 export type VoiceName = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr' | 'Orus' | 'Aoede';
 
-// Theme Definition
 export type AppTheme = 'nexus' | 'obsidian' | 'aether' | 'vertex' | 'crimson' | 'midnight' | 'cyber' | 'aurora' | 'solaris' | 'royale' | 'terminal' | 'custom';
 
 export interface CustomThemeConfig {
@@ -47,127 +45,108 @@ export interface CustomThemeConfig {
     muted: string;
 }
 
-// --- NEW: Voice DNA (Immutable constraints for a voice model) ---
 export interface VoiceDNA {
-    baselinePace: number; // 0.8 - 1.2
-    minWarmth: number;
-    maxWarmth: number;
-    imperfectionTolerance: 'low' | 'high'; // Can this voice handle stutters?
+    paceRange: [number, number];   
+    warmthRange: [number, number]; 
+    energyRange: [number, number]; 
+    imperfectionTolerance: 'low' | 'high'; 
+    defaultPersonaBias: string; 
 }
 
-// --- NEW: Trait Locking Support ---
+export interface AdminPolicy {
+    allowVoiceMemory: boolean;       
+    maxImperfectionLevel: 'off' | 'low' | 'natural'; 
+    lockedPersonas: string[];        
+    allowExport: boolean;            
+    allowSharing: boolean;           
+}
+
 export type VoiceTrait = 'pace' | 'warmth' | 'firmness' | 'brevity';
 
-// --- NEW: User Voice Memory (Learned Preferences) ---
 export interface UserVoiceMemory {
-    // Delivery Preferences (The "What")
-    paceBias: number;           // +/- 0.0 to 0.5 (Learned offset from base)
-    warmthBias: number;         // +/- 0 to 5
-    firmnessBias: number;       // +/- 0 to 5
+    paceBias: number;           
+    warmthBias: number;         
+    firmnessBias: number;       
     pauseTolerance: 'low' | 'neutral' | 'high';
     imperfectionPreference: 'low' | 'neutral' | 'high';
-    
-    // Learning Signals (The "Why")
     sessionCount: number;
-    avgSessionLength: number; // seconds
-    interruptionRate: number; // interruptions per minute (moving average)
-    
-    // Metadata
+    avgSessionLength: number; 
+    interruptionRate: number; 
     lastStableTimestamp: number;
-    lockedTraits: VoiceTrait[]; // Array of locked traits
+    lockedTraits: VoiceTrait[]; 
 }
 
 export interface WorkspaceVoiceMemory {
     id: string;
     name: string;
     description: string;
-    // Workspaces define defaults, but usually don't have "bias" in the same way, 
-    // they act as a baseline layer. For simplicity, we reuse the memory structure 
-    // but treat it as an override layer.
     defaults: Partial<UserVoiceMemory>;
-    lockedTraits: VoiceTrait[]; // Traits forced by the workspace (Admin control)
+    lockedTraits: VoiceTrait[]; 
 }
 
-// --- NEW: Voice Preset (Portable/Shareable Config) ---
 export interface VoicePreset {
     id: string;
     name: string;
     description: string;
     author: string;
     tags: string[];
-    // The specific settings this preset applies
     settings: Partial<VoiceProfile>; 
     createdAt: Date;
 }
 
-// --- NEW: Marketplace Profile (Sellable Asset) ---
 export interface MarketplaceProfile {
     id: string;
     name: string;
     description: string;
     voiceName: VoiceName;
     dna: VoiceDNA;
-    price: number; // 0 for free
+    price: number; 
     author: string;
     rating: number;
     downloads: number;
     tags: string[];
-    previewAudioUrl?: string; // Mock url
+    previewAudioUrl?: string; 
     isOwned?: boolean;
     defaultConfig: Partial<VoiceProfile>;
 }
 
-// ENHANCED: Voice Profile with Behavioral Traits
 export interface VoiceProfile {
   id: string;
   name: string;
   voiceName: VoiceName;
-  dna?: VoiceDNA; // Optional reference to DNA constraints
-  
-  // Vocal Characteristics
-  pace: number; // 0.8 to 1.2
-  warmth: number; // 0-10
-  energy: number; // 0-10
-  
-  // Behavioral Traits (Tier 3-6)
-  brevity: number; // 0-10
-  formality: number; // 0-10
-  firmness: number; // 0-10
-  challengeLevel: number; // 0-10 
+  dna?: VoiceDNA; 
+  pace: number; 
+  warmth: number; 
+  energy: number; 
+  brevity: number; 
+  formality: number; 
+  firmness: number; 
+  challengeLevel: number; 
   emotionalDrift: boolean; 
-  pauseDensity: number; // 0-10
-  
-  // Advanced Realism Controls
+  pauseDensity: number; 
   microHesitation: 'off' | 'low' | 'natural';
   selfCorrection: boolean;
   sentenceCompletionVariability: boolean;
-  
-  // Cognitive Timing
   thoughtDelay: 'off' | 'short' | 'variable';
   midResponseAdaptation: boolean;
-  
-  // Acoustic Nuance
   breathPlacement: 'off' | 'subtle';
   prosodicDrift: boolean;
   emphasisDecay: boolean;
-  
-  // Human Imperfection
   naturalFillers: 'off' | 'rare' | 'contextual';
   laughter: 'off' | 'rare';
   falseStartAllowance: boolean;
 }
 
-// NEW: Multi-Layer Memory System
 export interface MemoryLayer {
-  session: string[]; // Facts from this session
-  user: { // Long-term preferences
+  session: string[]; 
+  user: { 
     name: string;
-    pacePreference: string; // Deprecated in favor of voiceMemory but kept for compat
-    tonePreference: string; // Deprecated in favor of voiceMemory but kept for compat
+    pacePreference: string; 
+    tonePreference: string; 
   };
-  voiceMemory: UserVoiceMemory; // Persistent voice preferences (NEW)
-  workspace: string[]; // Shared domain knowledge
-  activeWorkspaceId?: string; // ID of currently active workspace context
+  voiceMemory: UserVoiceMemory; 
+  workspace: string[]; 
+  activeWorkspaceId?: string; 
 }
 
 // --- LEARNING & PODCAST ---
@@ -189,6 +168,43 @@ export interface PodcastScriptLine {
 }
 
 export type PodcastType = 'Standard' | 'Teaching';
+
+// --- Teaching Logic Types ---
+export interface TeachingUnit {
+    title: string;
+    coreConcept: string;
+    analogy?: string;
+    realWorldExample: string;
+    checkpointQuestion: string;
+}
+
+// NEW: Interactive Teaching Beats
+export interface TeachingBeat {
+    id: string;
+    timestamp: number; // Seconds from start
+    conceptId: string;
+    prompt: string; // e.g. "Do you want to review [Concept]?"
+    suggestedActions: string[]; // ["Explain Simply", "Quiz Me"]
+}
+
+export interface TeachingMap {
+    topic: string;
+    targetAudience: string;
+    units: TeachingUnit[];
+    beats?: TeachingBeat[]; // Optional: Generated later or during map creation
+    summary: string;
+}
+
+// --- Host Configuration Types ---
+export interface HostConfig {
+    voiceName: VoiceName;
+    personality: 'Professional' | 'Energetic' | 'Empathetic' | 'Socratic';
+    pace: number; // 0.8 - 1.2
+    warmth: number; // 1-10
+    imperfections: 'off' | 'low' | 'high';
+    dualHost: boolean;
+    audienceMode: 'off' | 'light' | 'normal' | 'heavy'; // NEW: Audience Q&A
+}
 
 export interface PodcastChapter {
   id: string;
@@ -224,6 +240,21 @@ export interface PodcastBlueprint {
   misconceptions?: string[];
 }
 
+// NEW: Export & Publishing
+export interface ExportArtifacts {
+    slidesMarkdown?: string;
+    studyPdfUrl?: string; // Blob URL
+    lastGeneratedAt?: Date;
+}
+
+export interface PublishingMetadata {
+    rssUrl?: string; // Blob URL acting as feed
+    publicPageUrl?: string; // Mock URL
+    isPublished: boolean;
+    feedTitle?: string;
+    feedDescription?: string;
+}
+
 export interface PodcastEpisode {
   id: string;
   title: string;
@@ -231,6 +262,15 @@ export interface PodcastEpisode {
   type: PodcastType;
   style: string;
   script: PodcastScriptLine[];
+  
+  // Enhanced Metadata
+  teachingMap?: TeachingMap;
+  hostConfig?: HostConfig;
+  
+  // New Sections
+  exports?: ExportArtifacts;
+  publishing?: PublishingMetadata;
+
   blueprint?: PodcastBlueprint;
   chapters?: PodcastChapter[];
   moments?: LearningMoment[];
@@ -240,8 +280,6 @@ export interface PodcastEpisode {
   createdAt: Date;
   durationSeconds?: number;
 }
-
-// --- FEATURE 1 & 3: PRODUCER & CALLS ---
 
 export type CallStatus = 'queued' | 'screening' | 'live' | 'declined' | 'ended';
 
@@ -268,8 +306,6 @@ export interface CallRequest {
   suggestedResponses?: string[];
 }
 
-// --- FEATURE 4: TELEMETRY & ADMIN ---
-
 export type TelemetryLevel = 'info' | 'warn' | 'error' | 'debug';
 export type TelemetryCategory = 'audio' | 'network' | 'producer' | 'system' | 'drift';
 
@@ -283,11 +319,11 @@ export interface AudioTelemetryEvent {
 }
 
 export interface AdminConfig {
-  godMode: boolean; // Disables safety filters and system prompt constraints
-  forceMonetization: boolean; // Simulates free tier limits
-  debugLatency: boolean; // Shows latency graphs
-  safetyFilters: 'strict' | 'relaxed' | 'off'; // Controls LLM safety settings
-  temperature: number; // 0.0 to 2.0
-  maintenanceMode: boolean; // Simulates system downtime
-  systemBroadcast?: string; // Message to display to all users
+  godMode: boolean; 
+  forceMonetization: boolean; 
+  debugLatency: boolean; 
+  safetyFilters: 'strict' | 'relaxed' | 'off'; 
+  temperature: number; 
+  maintenanceMode: boolean; 
+  systemBroadcast?: string; 
 }

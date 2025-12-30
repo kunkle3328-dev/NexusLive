@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AdminConfig, MemoryLayer, TelemetryLevel } from '../types';
+import { AdminConfig, MemoryLayer, TelemetryLevel, AdminPolicy } from '../types';
 
 interface AdminDashboardProps {
     isOpen: boolean;
@@ -9,6 +9,9 @@ interface AdminDashboardProps {
     onUpdateConfig: (newConfig: AdminConfig) => void;
     memory: MemoryLayer;
     onWipeMemory: () => void;
+    // New
+    adminPolicy: AdminPolicy;
+    onUpdatePolicy: (p: Partial<AdminPolicy>) => void;
 }
 
 // Simulated Graph Data Helper
@@ -17,9 +20,9 @@ const generateData = (length: number, min: number, max: number) => {
 };
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ 
-    isOpen, onClose, config, onUpdateConfig, memory, onWipeMemory 
+    isOpen, onClose, config, onUpdateConfig, memory, onWipeMemory, adminPolicy, onUpdatePolicy
 }) => {
-    const [activeTab, setActiveTab] = useState<'overview' | 'neural' | 'system' | 'logs'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'neural' | 'policy' | 'system' | 'logs'>('overview');
     const [stats, setStats] = useState({
         latency: generateData(20, 20, 150),
         tokens: generateData(20, 10, 500),
@@ -103,6 +106,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             {[
                                 { id: 'overview', label: 'Dashboard Overview', icon: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z' },
                                 { id: 'neural', label: 'Neural Configuration', icon: 'M12 2a10 10 0 100 20 10 10 0 000-20zM9.5 5.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm0 9a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm5 0a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm0-9a1.5 1.5 0 110 3 1.5 1.5 0 010-3z' },
+                                { id: 'policy', label: 'Enterprise Policies', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
                                 { id: 'system', label: 'System & Network', icon: 'M2 12C2 6.48 6.48 2 12 2s10 4.48 10 10-4.48 10-10 10S2 17.52 2 12zm10 6c3.31 0 6-2.69 6-6s-2.69-6-6-6-6 2.69-6 6 2.69 6 6 6z' },
                                 { id: 'logs', label: 'Live Logs', icon: 'M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h7v2H4v-2z' },
                             ].map(item => (
@@ -273,6 +277,84 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                                 {opt}
                                             </button>
                                         ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* POLICY TAB (NEW) */}
+                    {activeTab === 'policy' && (
+                        <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                            <h2 className="text-xl font-bold text-white mb-4 border-b border-white/10 pb-2">Enterprise Governance</h2>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Voice Memory Killswitch */}
+                                <div className="bg-slate-900 border border-white/10 p-5 rounded-lg">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                            <h3 className="text-sm font-bold text-white">Global Voice Memory</h3>
+                                            <p className="text-xs text-slate-400 mt-1">
+                                                Allow the model to learn and adapt to user preferences across sessions.
+                                            </p>
+                                        </div>
+                                        <div 
+                                            onClick={() => onUpdatePolicy({ allowVoiceMemory: !adminPolicy.allowVoiceMemory })}
+                                            className={`w-12 h-6 rounded-full p-1 cursor-pointer transition-colors ${adminPolicy.allowVoiceMemory ? 'bg-green-600' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${adminPolicy.allowVoiceMemory ? 'translate-x-6' : ''}`}></div>
+                                        </div>
+                                    </div>
+                                    <div className="text-[10px] text-slate-500 border-t border-white/5 pt-2">
+                                        STATUS: {adminPolicy.allowVoiceMemory ? 'LEARNING ACTIVE' : 'LEARNING DISABLED'}
+                                    </div>
+                                </div>
+
+                                {/* Imperfection Limits */}
+                                <div className="bg-slate-900 border border-white/10 p-5 rounded-lg">
+                                    <h3 className="text-sm font-bold text-white mb-4">Max Imperfection Level</h3>
+                                    <div className="flex gap-2">
+                                        {['off', 'low', 'natural'].map(level => (
+                                            <button 
+                                                key={level}
+                                                onClick={() => onUpdatePolicy({ maxImperfectionLevel: level as any })}
+                                                className={`flex-1 py-2 text-xs font-bold uppercase rounded border ${
+                                                    adminPolicy.maxImperfectionLevel === level 
+                                                    ? 'bg-blue-600 border-blue-500 text-white' 
+                                                    : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
+                                                }`}
+                                            >
+                                                {level}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <p className="text-[10px] text-slate-500 mt-3">
+                                        Restricts usage of fillers, stutters, and laughter across all profiles.
+                                    </p>
+                                </div>
+
+                                {/* Data Permissions */}
+                                <div className="bg-slate-900 border border-white/10 p-5 rounded-lg">
+                                    <h3 className="text-sm font-bold text-white mb-4">Data Permissions</h3>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs text-slate-300">Allow Profile Export</span>
+                                            <div 
+                                                onClick={() => onUpdatePolicy({ allowExport: !adminPolicy.allowExport })}
+                                                className={`w-10 h-5 rounded-full p-0.5 cursor-pointer transition-colors ${adminPolicy.allowExport ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                                            >
+                                                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${adminPolicy.allowExport ? 'translate-x-5' : ''}`}></div>
+                                            </div>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-xs text-slate-300">Allow Public Sharing</span>
+                                            <div 
+                                                onClick={() => onUpdatePolicy({ allowSharing: !adminPolicy.allowSharing })}
+                                                className={`w-10 h-5 rounded-full p-0.5 cursor-pointer transition-colors ${adminPolicy.allowSharing ? 'bg-indigo-600' : 'bg-slate-700'}`}
+                                            >
+                                                <div className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${adminPolicy.allowSharing ? 'translate-x-5' : ''}`}></div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
